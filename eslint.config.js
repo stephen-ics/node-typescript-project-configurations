@@ -41,6 +41,7 @@ export default defineConfig(
     extends: [js.configs.recommended, tseslint.configs.strictTypeChecked],
     languageOptions: {
       parserOptions: {
+        // The `typescript` package alias supplies the TS6 API for typed linting.
         projectService: true,
         tsconfigRootDir: import.meta.dirname,
       },

@@ -1,11 +1,28 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, resolve } from 'node:path';
 import { ESLint } from 'eslint';
-import ts from 'typescript';
+import lintTypeScript from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 const root = resolve(import.meta.dirname, '..');
 const eslint = new ESLint({ cwd: root });
+const compiler = resolve(
+  dirname(
+    createRequire(import.meta.url).resolve('@typescript/native/package.json'),
+  ),
+  'bin/tsc',
+);
 
 async function lint(source, file = 'src/example.ts') {
   const [result] = await eslint.lintText(source, {
@@ -71,6 +88,16 @@ describe('the installed ESLint configuration', () => {
       'export function check(value: boolean): number { if (value) return 1; return 0; }',
       'curly',
     ],
+    [
+      'type operations that erase every property',
+      "export type Empty = Omit<{ name: string }, 'name'>;",
+      '@typescript-eslint/no-generated-empty-object-type',
+    ],
+    [
+      'defaults for values that cannot be undefined',
+      "export function label(input: { value: string }): string { const { value = 'fallback' } = input; return value; }",
+      '@typescript-eslint/no-useless-default-assignment',
+    ],
   ])('rejects %s', async (_label, source, rule) => {
     const messages = await lint(source);
     expect(
@@ -125,40 +152,68 @@ describe('the installed ESLint configuration', () => {
   });
 });
 
-const parsed = ts.getParsedCommandLineOfConfigFile(
-  resolve(root, 'tsconfig.json'),
-  {},
-  {
-    ...ts.sys,
-    onUnRecoverableConfigFileDiagnostic(diagnostic) {
-      throw new Error(
-        ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'),
-      );
-    },
-  },
-);
-
-function compile(source, options = {}) {
-  const filename = resolve(root, 'src/compiler-probe.ts');
-  const host = ts.createCompilerHost(parsed.options);
-  const getSourceFile = host.getSourceFile.bind(host);
-  host.getSourceFile = (file, languageVersion, onError, createNew) =>
-    file === filename
-      ? ts.createSourceFile(file, source, languageVersion, true)
-      : getSourceFile(file, languageVersion, onError, createNew);
-  const writes = [];
-  host.writeFile = (file) => {
-    writes.push(file);
-  };
-  const program = ts.createProgram(
-    [filename],
-    { ...parsed.options, ...options },
-    host,
-  );
-  return { program, writes, diagnostics: ts.getPreEmitDiagnostics(program) };
+function run(command, args, cwd = root) {
+  const result = spawnSync(command, args, {
+    cwd,
+    encoding: 'utf8',
+    timeout: 10_000,
+  });
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.signal) {
+    throw new Error(`Process terminated by ${result.signal}`);
+  }
+  return { status: result.status, output: result.stdout + result.stderr };
 }
 
-describe('the installed TypeScript configuration', () => {
+function runCompiler(args, cwd = root) {
+  return run(process.execPath, [compiler, '--pretty', 'false', ...args], cwd);
+}
+
+function withCompilerFixture(source, check) {
+  // Keep fixtures under the package so Node types resolve from its node_modules.
+  // Each invocation gets fresh output; cleanup never touches application source.
+  mkdirSync(resolve(root, 'tmp'), { recursive: true });
+  const directory = mkdtempSync(resolve(root, 'tmp/compiler-'));
+  try {
+    mkdirSync(resolve(directory, 'src'));
+    for (const file of [
+      'tsconfig.json',
+      'tsconfig.build.json',
+      'package.json',
+    ]) {
+      copyFileSync(resolve(root, file), resolve(directory, file));
+    }
+    writeFileSync(resolve(directory, 'src/compiler-probe.ts'), source);
+    return check(directory);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+function compile(source, args = []) {
+  return withCompilerFixture(source, (directory) => {
+    const result = runCompiler(['-p', 'tsconfig.json', ...args], directory);
+    const outputDirectory = resolve(directory, 'dist');
+    return {
+      ...result,
+      writes: existsSync(outputDirectory)
+        ? readdirSync(outputDirectory, { recursive: true })
+        : [],
+    };
+  });
+}
+
+describe('the installed TypeScript 7 command-line configuration', () => {
+  it('routes tsc to TypeScript 7 and the lint compiler API to TypeScript 6', () => {
+    const result = run('pnpm', ['exec', 'tsc', '--version']);
+    expect(result.status, result.output).toBe(0);
+    expect(result.output.trim()).toBe('Version 7.0.2');
+    expect(runCompiler(['--version']).output.trim()).toBe('Version 7.0.2');
+    expect(lintTypeScript.version).toMatch(/^6\./);
+  });
+
   it.each([
     ['implicit any', 'export function label(value) { return value; }', 7006],
     [
@@ -195,7 +250,7 @@ describe('the installed TypeScript configuration', () => {
     [
       'unresolved side-effect imports',
       "import './missing-configuration-fixture.js'; export {};",
-      2307,
+      2882,
     ],
     [
       'runtime imports of type-only declarations',
@@ -203,58 +258,61 @@ describe('the installed TypeScript configuration', () => {
       1484,
     ],
   ])('rejects %s', (_label, source, code) => {
-    expect(
-      compile(source, { noEmit: true }).diagnostics.some(
-        (diagnostic) => diagnostic.code === code,
-      ),
-    ).toBe(true);
+    const result = compile(source, ['--noEmit']);
+    expect(result.status, result.output).not.toBe(0);
+    expect(result.output).toContain(`error TS${code}:`);
   });
 
   it('does not expose browser document globals to Node code', () => {
-    const { diagnostics } = compile('export const title = document.title;', {
-      noEmit: true,
-    });
-    expect(
-      diagnostics.some((diagnostic) =>
-        ts
-          .flattenDiagnosticMessageText(diagnostic.messageText, '\n')
-          .includes("Cannot find name 'document'"),
-      ),
-    ).toBe(true);
+    const result = compile('export const title = document.title;', [
+      '--noEmit',
+    ]);
+    expect(result.status, result.output).not.toBe(0);
+    expect(result.output).toContain("Cannot find name 'document'");
   });
 
   it('emits valid code but writes nothing when the program has a type error', () => {
     const valid = compile('export const value: number = 1;');
-    expect(valid.diagnostics).toEqual([]);
-    expect(valid.program.emit().emitSkipped).toBe(false);
-    expect(valid.writes.some((file) => file.endsWith('.js'))).toBe(true);
+    expect(valid.status, valid.output).toBe(0);
+    expect(valid.writes).toContain('compiler-probe.js');
 
     const invalid = compile('export const value: number = "wrong";');
-    expect(invalid.program.emit().emitSkipped).toBe(true);
+    expect(invalid.status, invalid.output).not.toBe(0);
+    expect(invalid.output).toContain('error TS2322:');
     expect(invalid.writes).toEqual([]);
   });
 
-  it('typechecks source tests but excludes them from the production build', () => {
-    const build = ts.getParsedCommandLineOfConfigFile(
-      resolve(root, 'tsconfig.build.json'),
-      {},
-      {
-        ...ts.sys,
-        onUnRecoverableConfigFileDiagnostic(diagnostic) {
-          throw new Error(
-            ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'),
-          );
-        },
+  it('compiles ES2024 APIs and executes the emitted module in Node', () => {
+    withCompilerFixture(
+      `const groups = Object.groupBy([1, 2, 3], value => value % 2 === 0 ? 'even' : 'odd');
+       const { promise, resolve } = Promise.withResolvers<string>();
+       resolve('ready');
+       console.log(JSON.stringify({ groups, state: await promise }));
+       export {};`,
+      (directory) => {
+        const build = runCompiler(['-p', 'tsconfig.build.json'], directory);
+        expect(build.status, build.output).toBe(0);
+        const runtime = run(
+          process.execPath,
+          ['dist/compiler-probe.js'],
+          directory,
+        );
+        expect(runtime.status, runtime.output).toBe(0);
+        expect(JSON.parse(runtime.output)).toEqual({
+          groups: { odd: [1, 3], even: [2] },
+          state: 'ready',
+        });
       },
     );
-    expect(
-      parsed.fileNames.some((file) => file.endsWith('example.test.ts')),
-    ).toBe(true);
-    expect(
-      build.fileNames.some((file) => file.endsWith('example.test.ts')),
-    ).toBe(false);
-    expect(build.fileNames.some((file) => file.endsWith('example.ts'))).toBe(
-      true,
-    );
+  });
+
+  it('typechecks source tests but excludes them from the production build', () => {
+    const typecheck = runCompiler(['-p', 'tsconfig.json', '--listFilesOnly']);
+    const build = runCompiler(['-p', 'tsconfig.build.json', '--listFilesOnly']);
+    expect(typecheck.status, typecheck.output).toBe(0);
+    expect(build.status, build.output).toBe(0);
+    expect(typecheck.output).toContain(resolve(root, 'src/example.test.ts'));
+    expect(build.output).not.toContain(resolve(root, 'src/example.test.ts'));
+    expect(build.output).toContain(resolve(root, 'src/example.ts'));
   });
 });
