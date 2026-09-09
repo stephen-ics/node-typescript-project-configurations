@@ -150,6 +150,29 @@ describe('the installed ESLint configuration', () => {
       true,
     );
   });
+
+  it.each([
+    [
+      'unassigned variables',
+      'let value; console.log(value);',
+      'no-unassigned-vars',
+    ],
+    [
+      'discarded error causes',
+      "try { JSON.parse('invalid'); } catch (error) { throw new Error('failed'); }",
+      'preserve-caught-error',
+    ],
+  ])(
+    'rejects %s through the ESLint 10 preset',
+    async (_label, source, rule) => {
+      const messages = await lint(source, 'tests/probe.mjs');
+      expect(
+        messages.some(
+          (message) => message.ruleId === rule && message.severity === 2,
+        ),
+      ).toBe(true);
+    },
+  );
 });
 
 function run(command, args, cwd = root) {
@@ -282,12 +305,24 @@ describe('the installed TypeScript 7 command-line configuration', () => {
     expect(invalid.writes).toEqual([]);
   });
 
-  it('compiles ES2024 APIs and executes the emitted module in Node', () => {
+  it('compiles ES2025 syntax and APIs and executes the emitted module in Node', () => {
     withCompilerFixture(
       `const groups = Object.groupBy([1, 2, 3], value => value % 2 === 0 ? 'even' : 'odd');
        const { promise, resolve } = Promise.withResolvers<string>();
        resolve('ready');
-       console.log(JSON.stringify({ groups, state: await promise }));
+       const escaped = new RegExp('^' + RegExp.escape('hello.world') + '$');
+       const half = new Float16Array([1.5]);
+       console.log(JSON.stringify({
+         groups,
+         state: await promise,
+         tried: await Promise.try(() => 'ready'),
+         half: Math.f16round(half[0] ?? 0),
+         mapped: Iterator.from([1, 2]).map(value => value * 2).toArray(),
+         union: [...new Set([1, 2]).union(new Set([2, 3]))],
+         escapedMatch: escaped.test('hello.world'),
+         escapedMismatch: escaped.test('helloXworld'),
+         modifier: /(?i:a)/.test('A'),
+       }));
        export {};`,
       (directory) => {
         const build = runCompiler(['-p', 'tsconfig.build.json'], directory);
@@ -301,6 +336,13 @@ describe('the installed TypeScript 7 command-line configuration', () => {
         expect(JSON.parse(runtime.output)).toEqual({
           groups: { odd: [1, 3], even: [2] },
           state: 'ready',
+          tried: 'ready',
+          half: 1.5,
+          mapped: [2, 4],
+          union: [1, 2, 3],
+          escapedMatch: true,
+          escapedMismatch: false,
+          modifier: true,
         });
       },
     );

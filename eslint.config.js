@@ -22,7 +22,6 @@ export default defineConfig(
     rules: {
       eqeqeq: ['error', 'always', { null: 'never' }],
       'no-unreachable-loop': 'error',
-      'no-useless-assignment': 'error',
       'no-useless-call': 'error',
       'no-useless-computed-key': 'error',
       'no-useless-concat': 'error',
