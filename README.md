@@ -1,6 +1,6 @@
 # Node + TypeScript project configurations
 
-A selected baseline for **Node 22, TypeScript ESM, pnpm, and code compiled by
+A selected baseline for **Node 22, TypeScript 7, ESM, pnpm, and code compiled by
 `tsc`**. These files combine compiler checks, type-aware ESLint, Prettier, fast
 unit tests, and a Git pre-commit hook. They do not include React rules.
 
@@ -39,8 +39,8 @@ Node will execute. The root configuration includes source tests in typechecking.
 
 | Setting                             | What it does                                                              | Why it is here                                                                                                        | Example                                                                                   |
 | ----------------------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `target: "ES2023"`                  | Chooses the JavaScript language target for emitted code.                  | Matches the selected modern Node runtime without unnecessary downleveling.                                            | Modern syntax can remain in `dist/example.js`; TypeScript does not add runtime polyfills. |
-| `lib: ["ES2023"]`                   | Loads standard ECMAScript declarations, without the DOM library.          | Browser-only APIs should not appear valid in Node code.                                                               | `document.title` is rejected; standard array methods remain available.                    |
+| `target: "ES2024"`                  | Chooses the JavaScript language target for emitted code.                  | Uses a fixed language edition appropriate for Node 22; compiler upgrades do not silently advance the target.          | Modern syntax can remain in `dist/example.js`; TypeScript does not add runtime polyfills. |
+| `lib: ["ES2024"]`                   | Loads standard ECMAScript declarations, without the DOM library.          | Browser-only APIs should not appear valid in Node code.                                                               | `Object.groupBy` and `Promise.withResolvers` are typed; `document.title` is rejected.     |
 | `module: "NodeNext"`                | Uses Node's ESM/CommonJS module rules when checking and emitting modules. | The application runs directly in Node, not through a browser bundler.                                                 | With this package's `"type": "module"`, TypeScript files emit ESM.                        |
 | `moduleResolution: "NodeNext"`      | Resolves imports according to Node's package and extension rules.         | Compile-time resolution should match runtime resolution.                                                              | Write `import { readLabel } from './example.js'` in a TypeScript file.                    |
 | `types: ["node"]`                   | Includes Node's ambient type package.                                     | Makes `process`, `Buffer`, and Node APIs available without automatically adding every installed ambient test package. | `process.pid` is typed. Tests explicitly import `it` and `expect`.                        |
@@ -130,6 +130,18 @@ The package is pinned because this preset can change outside major releases.
 | `only-throw-error`, `prefer-promise-reject-errors`, `use-unknown-in-catch-callback-variable`                  | Encourage useful error objects and safe error inspection.                | Throw `new Error('failed')`; inspect caught `unknown` before reading properties. |
 | `return-await`                                                                                                | Checks await usage where it affects error handling.                      | Await inside a try block when its catch must handle the rejection.               |
 | `no-unused-vars`, `no-var`, `prefer-const`, `prefer-rest-params`, `no-unnecessary-type-conversion`            | Supply the preset's existing baseline.                                   | Prefer `const` when a binding is never reassigned.                               |
+
+The pinned strict preset also includes these checks:
+
+| Inherited check                  | What and why                                                                                                                                             | Example                                                                    |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `no-generated-empty-object-type` | Reports type operations that produce `{}`, which accepts any non-nullish value, including numbers. This can reveal accidental loss of an object's shape. | `Omit<{ name: string }, 'name'>` is rejected because no properties remain. |
+| `no-useless-default-assignment`  | Reports a default value when the type says the original value cannot be `undefined`. It can reveal a mistaken input type or unnecessary fallback.        | Destructuring `value = 'fallback'` from `{ value: string }` is rejected.   |
+
+As with other type-aware checks, these rules rely on declared types. External
+input still needs validation. See the rule documentation for
+[generated empty object types](https://typescript-eslint.io/rules/no-generated-empty-object-type/)
+and [unused defaults](https://typescript-eslint.io/rules/no-useless-default-assignment/).
 
 This table highlights inherited checks; it is not a frozen copy of every preset
 rule. Inspect the complete effective policy with:
@@ -276,28 +288,70 @@ are also known.
 | `format`       | Applies Prettier to supported, non-ignored files.        | Provides one formatting command for the repository.        | `pnpm format` fixes formatting failures.                          |
 | `format:check` | Checks Prettier formatting without writing.              | Makes formatting enforceable in hooks and CI.              | An unformatted source file makes the command fail.                |
 | `lint`         | Runs ESLint across the repository.                       | Checks both TS implementation and JS tooling.              | `pnpm lint` rejects an unsafe assertion in `src`.                 |
-| `typecheck`    | Runs `tsc --noEmit`.                                     | Checks types without producing build output.               | Source tests are checked along with implementation.               |
+| `typecheck`    | Runs TypeScript 7 with `tsc --noEmit`.                   | Checks types without producing build output.               | Source tests are checked along with implementation.               |
 | `test`         | Runs Vitest once.                                        | Provides fast, non-Docker verification.                    | `pnpm test` runs the deliberate invalid-code checks.              |
 | `check`        | Runs formatting, lint, typecheck, and tests in sequence. | Gives the hook and CI the same fail-fast gate.             | If lint fails, typecheck and tests do not run in that invocation. |
-| `build`        | Runs `tsc -p tsconfig.build.json`.                       | Produces JavaScript using the production file selection.   | `pnpm build` writes `dist/example.js`.                            |
+| `build`        | Runs TypeScript 7 with `tsc -p tsconfig.build.json`.     | Produces JavaScript using the production file selection.   | `pnpm build` writes `dist/example.js`.                            |
 
 ### Pinned development dependencies
 
-| Dependency                      | Why it is needed                                | Example of its use                                |
-| ------------------------------- | ----------------------------------------------- | ------------------------------------------------- |
-| `typescript@5.9.3`              | Compiler and compiler API used by verification. | `pnpm typecheck`.                                 |
-| `@types/node@22.19.19`          | Node 22 API declarations.                       | Types for `process` and `node:fs`.                |
-| `eslint@9.39.4`                 | Lint engine and flat-config helpers.            | `defineConfig` and `eslint .`.                    |
-| `@eslint/js@9.39.4`             | Core recommended JavaScript rules.              | Lint JavaScript utilities.                        |
-| `typescript-eslint@8.41.0`      | TypeScript parser, plugin, and strict preset.   | Detect unhandled promises.                        |
-| `globals@17.12.0`               | Known Node global names for ESLint.             | Recognize `Buffer`.                               |
-| `eslint-config-prettier@10.1.8` | Formatting-rule compatibility.                  | Disable rules that fight Prettier.                |
-| `prettier@3.9.6`                | Deterministic formatting.                       | `pnpm format`.                                    |
-| `husky@9.1.7`                   | Git hook installation and execution.            | Run `pnpm check` before committing.               |
-| `vitest@3.2.7`                  | Fast test runner.                               | Verify rejection of deliberately unsafe snippets. |
+| Dependency                                        | Why it is needed                                                         | Example of its use                                                   |
+| ------------------------------------------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| `@typescript/native: "npm:typescript@7.0.2"`      | Native TypeScript 7 compiler, installed under a local alias.             | Provides `tsc` for typechecking, builds, and compiler fixture tests. |
+| `typescript: "npm:@typescript/typescript6@6.0.2"` | Compatibility package providing the TypeScript 6 API expected by ESLint. | Typed lint rules inspect values using the older API.                 |
+| `@types/node@22.19.19`                            | Node 22 API declarations.                                                | Types for `process` and `node:fs`.                                   |
+| `eslint@9.39.4`                                   | Lint engine and flat-config helpers.                                     | `defineConfig` and `eslint .`.                                       |
+| `@eslint/js@9.39.4`                               | Core recommended JavaScript rules.                                       | Lint JavaScript utilities.                                           |
+| `typescript-eslint@8.70.0`                        | TypeScript parser, plugin, and strict preset.                            | Detect unhandled promises.                                           |
+| `globals@17.12.0`                                 | Known Node global names for ESLint.                                      | Recognize `Buffer`.                                                  |
+| `eslint-config-prettier@10.1.8`                   | Formatting-rule compatibility.                                           | Disable rules that fight Prettier.                                   |
+| `prettier@3.9.6`                                  | Deterministic formatting.                                                | `pnpm format`.                                                       |
+| `husky@9.1.7`                                     | Git hook installation and execution.                                     | Run `pnpm check` before committing.                                  |
+| `vitest@3.2.7`                                    | Fast test runner.                                                        | Verify rejection of deliberately unsafe snippets.                    |
 
 Versions are exact rather than ranges. Dependency updates should run the
 verification suite and be reviewed, particularly when they change preset rules.
+
+### Why there are two TypeScript packages
+
+TypeScript 7 handles **typechecking and compilation**. ESLint's type-aware
+rules still need the TypeScript 6 compiler API. These aliases follow
+[Microsoft's migration guidance](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/#running-side-by-side-with-typescript-60):
+
+```json
+{
+  "@typescript/native": "npm:typescript@7.0.2",
+  "typescript": "npm:@typescript/typescript6@6.0.2"
+}
+```
+
+An npm alias changes the local dependency name. Here, `@typescript/native`
+installs the stable `typescript` 7.0.2 package; it is not a nightly preview.
+The name `typescript` instead points to the compatibility package so ESLint's
+existing imports find the API they need. Keep both entries when copying this
+configuration.
+
+The compatibility package version is **6.0.2**; its underlying TypeScript
+compiler is **6.0.3**, as resolved in this lockfile. The installed commands
+make the division visible:
+
+```sh
+pnpm exec tsc --version  # Version 7.0.2: builds and typechecking
+pnpm exec tsc6 --version # Version 6.0.3: compatibility compiler
+```
+
+The scripts use `tsc`. Typed linting uses the compatibility API internally;
+it does not launch `tsc6`. Updating TypeScript therefore requires checking both
+the native compiler and the lint toolchain. The verification suite exercises
+both routes, and CI and pre-commit already run that suite through `pnpm check`.
+Editor support is a separate choice: use your editor's TypeScript 7 language
+server support rather than assuming its older `typescript/lib` integration
+will select the native compiler.
+
+`target` and `lib` remain explicitly set to **ES2024** for Node 22. The target
+controls emitted syntax; the library list controls available API declarations.
+Neither installs polyfills. Keep these aligned with the deployment runtime
+when upgrading the compiler; do not automatically replace them with `ESNext`.
 
 ## `pnpm-lock.yaml`
 
@@ -379,14 +433,27 @@ ignore file inside its generated `.husky/_` directory.
 input. `src/example.test.ts` demonstrates that source tests are typechecked but
 excluded from the production build.
 
-`tests/configuration.test.mjs` loads the actual ESLint and TypeScript
-configurations and submits both valid and deliberately invalid snippets. It
-checks return contracts, unsafe values/assertions, promises, union coverage,
-braces, suppression rules, JavaScript coverage, compiler control-flow checks,
-Node-only declarations, build selection, and emission on errors. Compiler
-fixtures are supplied in memory; they do not write invalid source into `src`.
+`tests/configuration.test.mjs` submits valid and deliberately invalid snippets
+to the actual tools:
+
+- **ESLint:** loads the installed config and its TypeScript 6 compatibility API.
+  Checks return contracts, unsafe values/assertions, promises, union coverage,
+  braces, suppression rules, JavaScript coverage, generated empty object types,
+  and unused defaults. Lint snippets stay in memory.
+- **TypeScript 7:** invokes the native compiler CLI to check control flow,
+  Node-only declarations, build file selection, and emission on errors.
+  Each compiler fixture copies the real configuration into a fresh
+  `tmp/compiler-*` directory and removes that directory after the check.
+  Invalid fixtures never enter application `src` or the shared `dist` folder.
+- **Runtime:** compiles an ES2024 example using `Object.groupBy` and
+  `Promise.withResolvers`, then executes the emitted ESM file in the Node
+  runtime running the tests. CI selects Node 22.22.1.
+- **Tool selection:** verifies that `pnpm exec tsc` selects TypeScript 7.0.2
+  while the API imported as `typescript` remains TypeScript 6.
+
 The `.mjs` verification harness receives ordinary JavaScript linting; it is not
-part of the TypeScript application's emitted program.
+part of the TypeScript application's emitted program. Each compiler/runtime
+subprocess has a 10-second timeout.
 
 ## Decisions still open
 
