@@ -1,0 +1,12 @@
+# Generated dependencies, output, reports, and hook shims.
+node_modules/
+dist/
+build/
+coverage/
+.runs/
+output/
+tmp/
+.husky/_/
+
+# pnpm maintains this generated file.
+pnpm-lock.yaml
