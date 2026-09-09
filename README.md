@@ -1,6 +1,6 @@
 # Node + TypeScript project configurations
 
-A selected baseline for **Node 22, TypeScript 7, ESM, pnpm, and code compiled by
+A selected baseline for **Node 24, TypeScript 7, ESM, pnpm, and code compiled by
 `tsc`**. These files combine compiler checks, type-aware ESLint, Prettier, fast
 unit tests, and a Git pre-commit hook. They do not include React rules.
 
@@ -11,13 +11,21 @@ code to an application.
 
 ## Use the configurations
 
-Use Node **22.22.1** and pnpm **10.14.0**, then run:
+Use Node **24.21.0** and pnpm **12.3.4**, then run:
 
 ```sh
+node --version # v24.21.0
+pnpm --version # 12.3.4
 pnpm install --frozen-lockfile
 pnpm check
 pnpm build
 ```
+
+Node 24 is the selected LTS release line. Install pnpm 12 using the
+[pnpm installation instructions](https://pnpm.io/installation) before running
+these commands. pnpm 12 is a native executable; an older pnpm 10 launcher's
+automatic version switching may not complete its installation. The CI action
+below supports installing pnpm 12 directly.
 
 `pnpm check` runs formatting, lint, typecheck, and unit tests. Use `pnpm format`
 to apply formatting, review and stage the changes, then commit.
@@ -39,8 +47,8 @@ Node will execute. The root configuration includes source tests in typechecking.
 
 | Setting                             | What it does                                                              | Why it is here                                                                                                        | Example                                                                                   |
 | ----------------------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `target: "ES2024"`                  | Chooses the JavaScript language target for emitted code.                  | Uses a fixed language edition appropriate for Node 22; compiler upgrades do not silently advance the target.          | Modern syntax can remain in `dist/example.js`; TypeScript does not add runtime polyfills. |
-| `lib: ["ES2024"]`                   | Loads standard ECMAScript declarations, without the DOM library.          | Browser-only APIs should not appear valid in Node code.                                                               | `Object.groupBy` and `Promise.withResolvers` are typed; `document.title` is rejected.     |
+| `target: "ES2025"`                  | Chooses the JavaScript language target for emitted code.                  | Uses a fixed language edition appropriate for Node 24; compiler upgrades do not silently advance the target.          | Modern syntax can remain in `dist/example.js`; TypeScript does not add runtime polyfills. |
+| `lib: ["ES2025"]`                   | Loads standard ECMAScript declarations, without the DOM library.          | Browser-only APIs should not appear valid in Node code.                                                               | `RegExp.escape` and `Promise.try` are typed; `document.title` is rejected.                |
 | `module: "NodeNext"`                | Uses Node's ESM/CommonJS module rules when checking and emitting modules. | The application runs directly in Node, not through a browser bundler.                                                 | With this package's `"type": "module"`, TypeScript files emit ESM.                        |
 | `moduleResolution: "NodeNext"`      | Resolves imports according to Node's package and extension rules.         | Compile-time resolution should match runtime resolution.                                                              | Write `import { readLabel } from './example.js'` in a TypeScript file.                    |
 | `types: ["node"]`                   | Includes Node's ambient type package.                                     | Makes `process`, `Buffer`, and Node APIs available without automatically adding every installed ambient test package. | `process.pid` is typed. Tests explicitly import `it` and `expect`.                        |
@@ -143,7 +151,23 @@ input still needs validation. See the rule documentation for
 [generated empty object types](https://typescript-eslint.io/rules/no-generated-empty-object-type/)
 and [unused defaults](https://typescript-eslint.io/rules/no-useless-default-assignment/).
 
-This table highlights inherited checks; it is not a frozen copy of every preset
+ESLint 10's core recommended preset also enforces these checks. They apply to
+both JavaScript and TypeScript here:
+
+| Inherited check              | What it does                                                                 | Why it is here                                      | Example                                                                        |
+| ---------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `no-unassigned-vars`         | Reports variables read without ever being assigned.                          | Finds missing initialization.                       | `let value; console.log(value);` is rejected.                                  |
+| `preserve-caught-error`      | Requires the caught error as the cause when wrapping it in a new error.      | Keeps the original failure available for debugging. | Use `throw new Error('Load failed', { cause: error })` inside `catch (error)`. |
+| `no-useless-assignment`      | Finds assignments overwritten before their value is used.                    | Reveals dead writes and mistaken sequencing.        | Assigning `1`, then immediately overwriting it with `2`, can be reported.      |
+| `no-shadow-restricted-names` | Prevents bindings that hide restricted global names, including `globalThis`. | Avoids misleading references to JavaScript globals. | A function parameter named `globalThis` is rejected.                           |
+
+The first two checks are additions from the
+[ESLint 10 migration](https://eslint.org/docs/latest/use/migrate-to-10.0.0).
+`no-useless-assignment` was already enforced explicitly; the preset now supplies
+it, so the duplicate entry is removed. `globalThis` protection is a new default
+of the existing shadowing rule. Both explicit return-type rules remain enabled.
+
+These tables highlight inherited checks; they are not a frozen copy of every preset
 rule. Inspect the complete effective policy with:
 
 ```sh
@@ -207,7 +231,6 @@ These additions apply to both the JavaScript tooling and the TypeScript source.
 | `curly: ['error', 'all']`               | Requires braces around control-flow bodies.                       | Makes the scope of later edits unambiguous.                                    | Write `if (ready) { start(); }`, not an unbraced body.                                 |
 | `eqeqeq` with `null: 'never'`           | Requires strict equality except deliberate loose null checks.     | Avoids coercion while permitting one concise null-or-undefined check.          | `value == null` is allowed; `value == 0` is rejected.                                  |
 | `no-unreachable-loop`                   | Finds loops that cannot execute a second iteration.               | Can expose a mistakenly placed unconditional return or break.                  | A loop that always returns on its first iteration is reported.                         |
-| `no-useless-assignment`                 | Finds assignments overwritten before their value is used.         | Reveals dead writes and mistaken sequencing.                                   | Assigning `1`, then immediately overwriting it with `2`, can be reported.              |
 | `no-useless-call`                       | Rejects unnecessary `.call()`/`.apply()` usage.                   | Removes indirection that supplies no useful receiver behavior.                 | Prefer `Math.max(1, 2)` to `Math.max.call(null, 1, 2)`.                                |
 | `no-useless-computed-key`               | Rejects unnecessarily computed constant property names.           | Keeps object declarations easier to scan.                                      | Use `{ name: 'x' }` instead of `{ ['name']: 'x' }`.                                    |
 | `no-useless-concat`                     | Rejects concatenation of literal strings that can be one literal. | Removes pointless expression structure.                                        | Use `'hello world'` instead of `'hello ' + 'world'`.                                   |
@@ -277,8 +300,8 @@ are also known.
 | `name`, `version`, `description` | Identify this configuration repository.       | Distinguish this package from an application that adopts the settings.                                 | A consuming project retains its own name/version.                  |
 | `private: true`                  | Prevents accidental npm publication.          | This repository is a copyable configuration set.                                                       | A normal publish attempt is blocked.                               |
 | `type: 'module'`                 | Makes package `.js` files ESM.                | Matches `NodeNext` and the import-based config.                                                        | `eslint.config.js` can use `import`.                               |
-| `packageManager: 'pnpm@10.14.0'` | Records the selected package manager/version. | Aligns local tooling and CI.                                                                           | CI installs pnpm 10.14.0.                                          |
-| `engines.node: '>=22.12 <23'`    | Declares the supported Node major/minimum.    | States the runtime expected by the ESM tooling. This field alone is not a universal hard version gate. | A Node 25 install can warn; `.node-version` and CI select 22.22.1. |
+| `packageManager: 'pnpm@12.3.4'`  | Records the selected package manager/version. | Aligns local tooling and CI.                                                                           | CI installs pnpm 12.3.4.                                           |
+| `engines.node: '>=24.21.0 <25'`  | Declares the supported Node major/minimum.    | States the runtime expected by the ESM tooling. This field alone is not a universal hard version gate. | A Node 25 install can warn; `.node-version` and CI select 24.21.0. |
 
 ### Scripts
 
@@ -299,18 +322,25 @@ are also known.
 | ------------------------------------------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------- |
 | `@typescript/native: "npm:typescript@7.0.2"`      | Native TypeScript 7 compiler, installed under a local alias.             | Provides `tsc` for typechecking, builds, and compiler fixture tests. |
 | `typescript: "npm:@typescript/typescript6@6.0.2"` | Compatibility package providing the TypeScript 6 API expected by ESLint. | Typed lint rules inspect values using the older API.                 |
-| `@types/node@22.19.19`                            | Node 22 API declarations.                                                | Types for `process` and `node:fs`.                                   |
-| `eslint@9.39.4`                                   | Lint engine and flat-config helpers.                                     | `defineConfig` and `eslint .`.                                       |
-| `@eslint/js@9.39.4`                               | Core recommended JavaScript rules.                                       | Lint JavaScript utilities.                                           |
+| `@types/node@24.13.4`                             | Node 24 API declarations.                                                | Types for `process` and `node:fs`.                                   |
+| `eslint@10.10.0`                                  | Lint engine and flat-config helpers.                                     | `defineConfig` and `eslint .`.                                       |
+| `@eslint/js@10.0.1`                               | Core recommended JavaScript rules.                                       | Lint JavaScript utilities.                                           |
 | `typescript-eslint@8.70.0`                        | TypeScript parser, plugin, and strict preset.                            | Detect unhandled promises.                                           |
 | `globals@17.12.0`                                 | Known Node global names for ESLint.                                      | Recognize `Buffer`.                                                  |
 | `eslint-config-prettier@10.1.8`                   | Formatting-rule compatibility.                                           | Disable rules that fight Prettier.                                   |
 | `prettier@3.9.6`                                  | Deterministic formatting.                                                | `pnpm format`.                                                       |
 | `husky@9.1.7`                                     | Git hook installation and execution.                                     | Run `pnpm check` before committing.                                  |
-| `vitest@3.2.7`                                    | Fast test runner.                                                        | Verify rejection of deliberately unsafe snippets.                    |
+| `vite@8.2.2`                                      | Required Vitest peer for module loading and transformation.              | Loads the source modules during a test run.                          |
+| `vitest@5.0.0`                                    | Fast test runner.                                                        | Verify rejection of deliberately unsafe snippets.                    |
 
 Versions are exact rather than ranges. Dependency updates should run the
 verification suite and be reviewed, particularly when they change preset rules.
+
+Vite **8.2.2** is also pinned as a development dependency because
+[Vitest 5 requires Vite as a peer dependency](https://vitest.dev/guide/migration/).
+It supplies the test runner's module loading and transformation machinery;
+production builds still use `tsc`. Vitest 5 clears mock call history before each
+test by default. This repository has no custom mock or worker-pool configuration.
 
 ### Why there are two TypeScript packages
 
@@ -348,10 +378,27 @@ Editor support is a separate choice: use your editor's TypeScript 7 language
 server support rather than assuming its older `typescript/lib` integration
 will select the native compiler.
 
-`target` and `lib` remain explicitly set to **ES2024** for Node 22. The target
+`target` and `lib` remain explicitly set to **ES2025** for Node 24. The target
 controls emitted syntax; the library list controls available API declarations.
 Neither installs polyfills. Keep these aligned with the deployment runtime
 when upgrading the compiler; do not automatically replace them with `ESNext`.
+
+## `pnpm-workspace.yaml`
+
+**Purpose:** configure dependency installation. **Why:** pnpm 12 requires explicit
+decisions about dependency build scripts and applies a release-age safeguard.
+There is no `packages` list; only the root project belongs to this workspace.
+
+| Setting                                             | What it does                                                                   | Why it is here                                                                                                                    | Example                                                                                            |
+| --------------------------------------------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `allowBuilds.esbuild: true`                         | Allows esbuild's installation script.                                          | Vite's selected dependency needs its platform executable prepared and verified. Other dependency scripts are not broadly allowed. | A fresh install can prepare the locked esbuild binary; an unreviewed dependency build still fails. |
+| `minimumReleaseAgeExclude: ['@types/node@24.13.4']` | Exempts only this exact version from pnpm's default 24-hour release-age delay. | The selected Node declarations were newly published when this lockfile was generated, so pnpm recorded the explicit choice.       | This pin can install immediately; other new packages still face the age delay.                     |
+
+Commit this file with the lockfile so a fresh clone has the same installation
+policy. Review the exact-version exception when updating the Node types; it does
+not exempt future releases. See pnpm's
+[build permissions](https://pnpm.io/settings/build#allowbuilds) and
+[release-age exceptions](https://pnpm.io/settings/dependency-resolution#minimumreleaseageexclude).
 
 ## `pnpm-lock.yaml`
 
@@ -360,12 +407,13 @@ when upgrading the compiler; do not automatically replace them with `ESNext`.
 dependency. **Example:** CI uses `pnpm install --frozen-lockfile` and fails if the
 manifest requires an unresolved lockfile change.
 
-This is generated configuration. Update it using pnpm, and commit it together
-with relevant `package.json` changes.
+This is generated configuration. pnpm 12 also records its package-manager and
+platform binary dependencies in the lockfile. Update it using the pinned pnpm
+version, and commit it with relevant `package.json` and installation-policy changes.
 
 ## `.node-version`
 
-**What:** selects Node **22.22.1** for tools that read this file, including this
+**What:** selects Node **24.21.0** for tools that read this file, including this
 CI workflow. **Why:** tests should run against a known runtime. **Example:**
 `actions/setup-node` reads this file instead of choosing an arbitrary Node major.
 
@@ -391,20 +439,20 @@ explains how the `prepare` script installs hooks after dependency installation.
 **Purpose:** verify the configuration set on Linux using the selected versions.
 **Why:** local hooks and developer environments are not the only validation point.
 
-| Configuration                                        | What it does                                             | Why it is here                                                 | Example                                                             |
-| ---------------------------------------------------- | -------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `name: Configuration checks`                         | Names the workflow.                                      | Makes its result recognizable on commits and pull requests.    | GitHub shows a Configuration checks run.                            |
-| `pull_request` and pushes to `main`                  | Trigger verification on proposed and landed changes.     | Tests the committed snapshot.                                  | Updating an ESLint rule in a PR starts CI.                          |
-| `permissions.contents: read`                         | Gives the workflow read access to repository contents.   | These checks do not need to write repository data.             | Checkout can read the source.                                       |
-| `runs-on: ubuntu-24.04`                              | Selects the Linux runner.                                | Exercises the configuration on a consistent CI OS.             | Case-sensitive import mistakes are less likely to escape unnoticed. |
-| `timeout-minutes: 10`                                | Bounds the job duration.                                 | A stuck command should not run indefinitely.                   | A hung test eventually fails the job.                               |
-| `HUSKY: '0'`                                         | Skips local hook installation/execution in CI.           | CI invokes the checks directly.                                | Installing packages does not need to prepare Git hooks.             |
-| `actions/checkout@v4`                                | Checks out the committed files.                          | Supplies the input to all checks.                              | Tests run against the PR commit.                                    |
-| `pnpm/action-setup@v4`, version `10.14.0`            | Installs the selected pnpm.                              | Matches `packageManager`.                                      | Installation uses pnpm 10.14.0.                                     |
-| `actions/setup-node@v4`, `.node-version`, pnpm cache | Installs the selected Node and caches package downloads. | Matches the runtime while reducing repeated download work.     | CI selects Node 22.22.1.                                            |
-| Frozen dependency install                            | Installs exactly the lockfile resolution.                | Detects manifest/lockfile drift.                               | A missing lockfile update fails.                                    |
-| `pnpm check`                                         | Runs the same gate as pre-commit.                        | Checks formatting, lint, types, and unit tests together.       | Disabling a required rule causes a negative fixture test to fail.   |
-| `pnpm build`                                         | Verifies production compilation separately.              | Passing typecheck should also lead to a working build command. | The example compiles into `dist`.                                   |
+| Configuration                                            | What it does                                             | Why it is here                                                 | Example                                                             |
+| -------------------------------------------------------- | -------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `name: Configuration checks`                             | Names the workflow.                                      | Makes its result recognizable on commits and pull requests.    | GitHub shows a Configuration checks run.                            |
+| `pull_request` and pushes to `main`                      | Trigger verification on proposed and landed changes.     | Tests the committed snapshot.                                  | Updating an ESLint rule in a PR starts CI.                          |
+| `permissions.contents: read`                             | Gives the workflow read access to repository contents.   | These checks do not need to write repository data.             | Checkout can read the source.                                       |
+| `runs-on: ubuntu-24.04`                                  | Selects the Linux runner.                                | Exercises the configuration on a consistent CI OS.             | Case-sensitive import mistakes are less likely to escape unnoticed. |
+| `timeout-minutes: 10`                                    | Bounds the job duration.                                 | A stuck command should not run indefinitely.                   | A hung test eventually fails the job.                               |
+| `HUSKY: '0'`                                             | Skips local hook installation/execution in CI.           | CI invokes the checks directly.                                | Installing packages does not need to prepare Git hooks.             |
+| `actions/checkout@v7.0.1`                                | Checks out the committed files.                          | Supplies the input to all checks.                              | Tests run against the PR commit.                                    |
+| `pnpm/action-setup@v6.1.0`, version `12.3.4`             | Installs the selected pnpm.                              | Matches `packageManager`.                                      | Installation uses pnpm 12.3.4.                                      |
+| `actions/setup-node@v7.0.0`, `.node-version`, pnpm cache | Installs the selected Node and caches package downloads. | Matches the runtime while reducing repeated download work.     | CI selects Node 24.21.0.                                            |
+| Frozen dependency install                                | Installs exactly the lockfile resolution.                | Detects manifest/lockfile drift.                               | A missing lockfile update fails.                                    |
+| `pnpm check`                                             | Runs the same gate as pre-commit.                        | Checks formatting, lint, types, and unit tests together.       | Disabling a required rule causes a negative fixture test to fail.   |
+| `pnpm build`                                             | Verifies production compilation separately.              | Passing typecheck should also lead to a working build command. | The example compiles into `dist`.                                   |
 
 This is a generic configuration repository, so the workflow has no Bluma-specific
 Docker build or live-model smoke test. Application repositories can retain their
@@ -439,15 +487,17 @@ to the actual tools:
 - **ESLint:** loads the installed config and its TypeScript 6 compatibility API.
   Checks return contracts, unsafe values/assertions, promises, union coverage,
   braces, suppression rules, JavaScript coverage, generated empty object types,
-  and unused defaults. Lint snippets stay in memory.
+  unused defaults, missing initialization, and preserved error causes. Lint
+  snippets stay in memory.
 - **TypeScript 7:** invokes the native compiler CLI to check control flow,
   Node-only declarations, build file selection, and emission on errors.
   Each compiler fixture copies the real configuration into a fresh
   `tmp/compiler-*` directory and removes that directory after the check.
   Invalid fixtures never enter application `src` or the shared `dist` folder.
-- **Runtime:** compiles an ES2024 example using `Object.groupBy` and
-  `Promise.withResolvers`, then executes the emitted ESM file in the Node
-  runtime running the tests. CI selects Node 22.22.1.
+- **Runtime:** compiles an ES2025 example and executes the emitted ESM file
+  in the Node runtime running the tests. It checks `RegExp.escape`, `Promise.try`,
+  iterator helpers, set union, float16 APIs, and the `/(?i:a)/` regular-expression
+  syntax, alongside grouping and promise APIs. CI selects Node 24.21.0.
 - **Tool selection:** verifies that `pnpm exec tsc` selects TypeScript 7.0.2
   while the API imported as `typescript` remains TypeScript 6.
 
