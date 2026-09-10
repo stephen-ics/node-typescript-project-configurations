@@ -34,6 +34,8 @@ For another repository, copy the configurations and merge the scripts and
 development dependencies into its existing `package.json`. Keep the ESM/module
 and folder assumptions aligned. Regenerate that project's lockfile with pnpm;
 do not replace its application dependencies with this repository's package file.
+Include `@tsconfig/strictest` in those development dependencies: the root
+`tsconfig.json` loads its inherited settings from that installed package.
 The `src/example*` and `tests/configuration.test.mjs` files verify this repository;
 they are not required application modules to copy.
 
@@ -42,6 +44,26 @@ they are not required application modules to copy.
 **Purpose:** define the Node runtime assumptions and the compiler's safety checks.
 **Why:** reject common type mistakes while still producing the JavaScript that
 Node will execute. The root configuration includes source tests in typechecking.
+
+### Inherited baseline
+
+| Setting                                        | What it does                                           | Why it is here                                                               | Example                                                                       |
+| ---------------------------------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `extends: "@tsconfig/strictest/tsconfig.json"` | Loads the compiler baseline from the installed preset. | Uses an upstream-maintained baseline without repeating its settings locally. | `noUnusedParameters` remains enabled even though our file no longer lists it. |
+
+The preset is pinned to **`@tsconfig/strictest@2.0.8`**. TypeScript loads it first,
+then applies our local settings. The preset supplies the checks documented below;
+our runtime, paths, and additional compiler policies remain in this repository.
+Preset updates are reviewed dependency changes, so installing the project does
+not silently adopt a newer baseline. See the
+[upstream preset](https://github.com/tsconfig/bases/blob/main/bases/strictest.json)
+and [TypeScript inheritance rules](https://www.typescriptlang.org/tsconfig/extends.html).
+
+Inspect the combined configuration with:
+
+```sh
+pnpm exec tsc --showConfig
+```
 
 ### Runtime and file layout
 
@@ -57,7 +79,10 @@ Node will execute. The root configuration includes source tests in typechecking.
 | `include: ["src/**/*.ts"]`          | Selects source TypeScript files, including source tests.                  | The typecheck should cover both implementation and its TypeScript tests.                                              | `src/example.test.ts` participates in `pnpm typecheck`.                                   |
 | `exclude: ["node_modules", "dist"]` | Excludes dependency and build directories from initial file discovery.    | Avoids treating generated output as source. Imported dependencies can still be resolved.                              | Building does not make `dist/` a new source directory.                                    |
 
-### Type safety and control flow
+### Settings inherited from `@tsconfig/strictest`
+
+All settings in this table come from the pinned preset. They stay enforced
+without duplicate entries in our `compilerOptions`.
 
 | Setting                                    | What it does                                                                                               | Why it is here                                                                                 | Example                                                                                            |
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
@@ -72,6 +97,14 @@ Node will execute. The root configuration includes source tests in typechecking.
 | `noFallthroughCasesInSwitch: true`         | Rejects a nonempty switch case that falls into the next case.                                              | Prevents accidentally executing another case after forgetting a break or return.               | A case that logs and then enters the next case is rejected.                                        |
 | `allowUnreachableCode: false`              | Treats compiler-detectable unreachable statements as errors.                                               | Dead statements can reveal a misplaced return or mistaken control flow.                        | A statement after an unconditional `return` is rejected.                                           |
 | `allowUnusedLabels: false`                 | Rejects labels that no break/continue uses.                                                                | Catches unused labels and statements that resemble mistyped object properties.                 | `unused: { console.log('x'); }` is rejected.                                                       |
+| `isolatedModules: true`                    | Rejects constructs that cannot be safely processed one file at a time.                                     | Keeps module syntax compatible with tools that transform files independently.                  | Re-export a type with `export type { User }` rather than a runtime export.                         |
+| `esModuleInterop: true`                    | Applies TypeScript's interoperable handling of CommonJS imports.                                           | Aligns the baseline with common package imports; our `NodeNext` mode already implied it.       | `import path from 'node:path'` can use the CommonJS module's default export.                       |
+| `skipLibCheck: true`                       | Skips checking the internals of declaration files.                                                         | Keeps dependency declaration checking from dominating the build; application uses are checked. | Your incorrect argument to a typed Node API still fails.                                           |
+
+`isolatedModules` was already active through `verbatimModuleSyntax`, and
+`esModuleInterop` was already implied by `NodeNext`. Inheriting these explicitly
+preserves the existing behavior. The other inherited settings were previously
+listed in this file and have been removed from it.
 
 The two unused-code options deliberately overlap with ESLint. They make
 `pnpm typecheck` and `pnpm build` reject unused declarations even without a lint
@@ -102,14 +135,15 @@ and [ESLint compatibility](https://typescript-eslint.io/rules/dot-notation/).
 
 ### Imports, emission, and dependency declarations
 
-| Setting                                  | What it does                                                                                                        | Why it is here                                                                                                      | Example                                                                            |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `noEmitOnError: true`                    | Stops this compilation from writing output when it has errors.                                                      | Avoids writing fresh JavaScript from a failed build. It does not delete older output.                               | Assigning a string to a number prevents that build from emitting.                  |
-| `noUncheckedSideEffectImports: true`     | Checks resolution of imports made only for their side effects.                                                      | A misspelled setup import should not silently pass compilation.                                                     | `import './missing-setup.js'` is rejected.                                         |
-| `verbatimModuleSyntax: true`             | Preserves imports written as runtime imports and erases imports marked as types; enforces compatible module syntax. | Makes emitted imports intentional.                                                                                  | `import type { IncomingHttpHeaders } from 'node:http'` disappears from JavaScript. |
-| `resolveJsonModule: true`                | Resolves JSON imports and infers their structure.                                                                   | Permits typed JSON module imports when needed. It does not validate JSON loaded with `fs`.                          | `import settings from './settings.json' with { type: 'json' }`.                    |
-| `forceConsistentCasingInFileNames: true` | Checks consistent filename casing in the program.                                                                   | Reduces macOS-versus-Linux import failures.                                                                         | Match `./example.js` to `example.ts`, rather than changing its capitalization.     |
-| `skipLibCheck: true`                     | Skips checking the internals of declaration files.                                                                  | Keeps dependency declaration checking from dominating the build; application uses of those types are still checked. | Your incorrect argument to a typed Node API still fails.                           |
+These additional settings remain explicit in our local configuration.
+
+| Setting                                  | What it does                                                                                                        | Why it is here                                                                             | Example                                                                            |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| `noEmitOnError: true`                    | Stops this compilation from writing output when it has errors.                                                      | Avoids writing fresh JavaScript from a failed build. It does not delete older output.      | Assigning a string to a number prevents that build from emitting.                  |
+| `noUncheckedSideEffectImports: true`     | Checks resolution of imports made only for their side effects.                                                      | A misspelled setup import should not silently pass compilation.                            | `import './missing-setup.js'` is rejected.                                         |
+| `verbatimModuleSyntax: true`             | Preserves imports written as runtime imports and erases imports marked as types; enforces compatible module syntax. | Makes emitted imports intentional.                                                         | `import type { IncomingHttpHeaders } from 'node:http'` disappears from JavaScript. |
+| `resolveJsonModule: true`                | Resolves JSON imports and infers their structure.                                                                   | Permits typed JSON module imports when needed. It does not validate JSON loaded with `fs`. | `import settings from './settings.json' with { type: 'json' }`.                    |
+| `forceConsistentCasingInFileNames: true` | Checks consistent filename casing in the program.                                                                   | Reduces macOS-versus-Linux import failures.                                                | Match `./example.js` to `example.ts`, rather than changing its capitalization.     |
 
 `pnpm typecheck` supplies `--noEmit`; the configuration itself leaves emission
 enabled because `pnpm build` uses `tsc` to produce runnable JavaScript. Imported
@@ -502,6 +536,7 @@ are also known.
 | `eslint@10.10.0`                                  | Lint engine and flat-config helpers.                                     | `defineConfig` and `eslint .`.                                       |
 | `@eslint/js@10.0.1`                               | Core recommended JavaScript rules.                                       | Lint JavaScript utilities.                                           |
 | `@stylistic/eslint-plugin@5.10.0`                 | Maintained mixed-operator readability rule.                              | Reject ungrouped `base + count * price`.                             |
+| `@tsconfig/strictest@2.0.8`                       | Shared strict compiler baseline inherited by the root tsconfig.          | Supplies `strict` and unused-code checks.                            |
 | `typescript-eslint@8.70.0`                        | TypeScript parser, plugin, and strict preset.                            | Detect unhandled promises.                                           |
 | `globals@17.12.0`                                 | Known Node global names for ESLint.                                      | Recognize `Buffer`.                                                  |
 | `eslint-config-prettier@10.1.8`                   | Formatting-rule compatibility.                                           | Disable rules that fight Prettier.                                   |
@@ -680,7 +715,8 @@ to the actual tools:
   parameters remain accepted. A shared valid fixture checks that ESLint accepts dictionary
   brackets required by the compiler while declared fields still use dots.
   Each compiler fixture copies the real configuration into a fresh
-  `tmp/compiler-*` directory and removes that directory after the check.
+  `tmp/compiler-*` directory, resolves the inherited preset from the installed
+  dependencies, and removes the temporary directory after the check.
   Invalid fixtures never enter application `src` or the shared `dist` folder.
 - **Runtime:** compiles an ES2025 example and executes the emitted ESM file
   in the Node runtime running the tests. It checks `RegExp.escape`, `Promise.try`,
@@ -699,8 +735,6 @@ These are not silently enabled as new policy in this baseline:
 
 - Broader readability policies: naming conventions, class member ordering, and
   numerical limits on complexity, nesting, or function length.
-- Packaging the selected compiler flags through `@tsconfig/strictest` instead
-  of writing the chosen flags directly in this standalone file.
 - Source maps.
 - The exact mechanism for enforcing explanations on ESLint suppressions and
   handling application-specific cancellation false positives.
