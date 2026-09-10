@@ -59,6 +59,31 @@ describe('the installed ESLint configuration', () => {
       '@typescript-eslint/no-unsafe-type-assertion',
     ],
     [
+      'non-null assertions',
+      'export function label(value: string | undefined): string { return value!; }',
+      '@typescript-eslint/no-non-null-assertion',
+    ],
+    [
+      'object type aliases instead of interfaces',
+      'export type User = { name: string };',
+      '@typescript-eslint/consistent-type-definitions',
+    ],
+    [
+      'annotations inferred from parameter defaults',
+      'export function retries(count: number = 3): number { return count; }',
+      '@typescript-eslint/no-inferrable-types',
+    ],
+    [
+      'filtering an array to read only the first match',
+      'interface User { active: boolean; } export function first(users: User[]): User | undefined { return users.filter(user => user.active)[0]; }',
+      '@typescript-eslint/prefer-find',
+    ],
+    [
+      'unexplained empty functions',
+      'export function report(): void {}',
+      '@typescript-eslint/no-empty-function',
+    ],
+    [
       'unhandled promises even with void',
       'void Promise.resolve();',
       '@typescript-eslint/no-floating-promises',
@@ -111,9 +136,24 @@ describe('the installed ESLint configuration', () => {
     const source = `${readFileSync(resolve(root, 'src/example.ts'), 'utf8')}
       export const labels = [1, 2].map(value => String(value));
       export function address(port: number): string { return \`http://localhost:\${port}\`; }
+      export interface User { name: string; }
+      export function retries(count = 3): number { return count; }
+      export function report(): void { /* Intentionally unused in this fixture. */ }
       void Promise.resolve().catch((error: unknown) => { console.error(error); });
     `;
     expect(await lint(source)).toEqual([]);
+  });
+
+  it('keeps unsafe narrowing rejected without fixing it into a forbidden non-null assertion', async () => {
+    const fixer = new ESLint({ cwd: root, fix: true });
+    const [result] = await fixer.lintText(
+      'export function label(value: string | undefined): string { return value as string; }',
+      { filePath: resolve(root, 'src/example.ts') },
+    );
+    expect(result.output).toBeUndefined();
+    expect(result.messages.map((message) => message.ruleId)).toEqual([
+      '@typescript-eslint/no-unsafe-type-assertion',
+    ]);
   });
 
   it('requires imports used only as types to be marked', async () => {

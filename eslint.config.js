@@ -37,7 +37,11 @@ export default defineConfig(
   },
   {
     files: ['src/**/*.ts'],
-    extends: [js.configs.recommended, tseslint.configs.strictTypeChecked],
+    extends: [
+      js.configs.recommended,
+      tseslint.configs.strictTypeChecked,
+      tseslint.configs.stylisticTypeChecked,
+    ],
     languageOptions: {
       parserOptions: {
         // The `typescript` package alias supplies the TS6 API for typed linting.
@@ -92,6 +96,8 @@ export default defineConfig(
       ],
       '@typescript-eslint/switch-exhaustiveness-check': 'error',
       '@typescript-eslint/no-unsafe-type-assertion': 'error',
+      // Its suggested ! assertion is forbidden by our safety rules.
+      '@typescript-eslint/non-nullable-type-assertion-style': 'off',
       // Preserve the strict preset's restrictions when allowing numeric interpolation.
       '@typescript-eslint/restrict-template-expressions': [
         'error',
