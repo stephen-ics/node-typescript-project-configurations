@@ -57,7 +57,6 @@ export default defineConfig(
     },
     rules: {
       // Explicit overrides express project policy; other safety rules come from the preset.
-      'default-param-last': 'off',
       '@typescript-eslint/default-param-last': 'error',
       '@typescript-eslint/ban-ts-comment': [
         'error',
