@@ -312,10 +312,11 @@ TypeScript. They cover conventions outside the TypeScript stylistic preset:
 | `prefer-template`                                              | Requires template literals when combining a string literal with a value.                                    | Makes interpolation easier to scan.                                                 | Prefer `` `Hello ${name}` `` to `'Hello ' + name`.                                                                                   |
 | `default-param-last` / `@typescript-eslint/default-param-last` | Places defaulted parameters after required parameters; the TS version also understands optional parameters. | Callers can omit defaults without passing a placeholder before a required argument. | Prefer `label(name: string, prefix = 'Hello')` to `label(prefix = 'Hello', name: string)`.                                           |
 
-JavaScript uses the core `default-param-last` rule. The TypeScript block disables
-that core rule and enables its TypeScript-aware replacement to avoid duplicate
-or incorrect diagnostics. Moving an existing parameter requires reviewing call
-sites; the rule does not automatically reorder an API. See the
+JavaScript enables the core `default-param-last` rule only in its own file block.
+The TypeScript block enables `@typescript-eslint/default-param-last`; the core
+rule is not enabled there, so no explicit `off` entry is needed.
+Moving an existing parameter requires reviewing call sites; the rule does not
+automatically reorder an API. See the
 [TypeScript extension documentation](https://typescript-eslint.io/rules/default-param-last/).
 
 Object shorthand leaves arrow functions and differently named properties such as
