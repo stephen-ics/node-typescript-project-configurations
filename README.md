@@ -330,8 +330,8 @@ Two limits matter when interpreting diagnostics:
 
 - A callback can modify a value while asynchronous work waits. TypeScript may
   still regard that value as unchanged, causing `no-unnecessary-condition` to
-  misflag a real cancellation check. Preserve the behavior and review the state
-  representation or a narrow exception; do not delete the guard automatically.
+  misflag a real cancellation check. Preserve the behavior and use the
+  [false-positive policy below](#handling-false-positives).
 - Type assertions are not runtime validation. Guards/decoders must actually
   inspect external data, and their behavior still needs appropriate tests.
 
@@ -462,11 +462,54 @@ It reports `@stylistic/no-mixed-operators` as a rule needing special attention;
 that is the documented exception above, not an unnoticed conflict. The formatter
 remains enabled, and code must pass both formatting and lint checks.
 
-Policy: any necessary ESLint suppression should name the specific rule and explain
-why it is necessary. The current configuration enforces unused-disable detection;
-it does **not** automatically require descriptions on ESLint comments. Selecting
-that enforcement mechanism remains open. The 10-character requirement above
-applies to TypeScript suppression comments.
+### Explanations for ESLint suppressions
+
+Suppressions must name the rule and explain why an exception is appropriate.
+These two rules from `@eslint-community/eslint-plugin-eslint-comments` apply to
+both JavaScript and TypeScript at severity **error**. Their full names use the
+`@eslint-community/eslint-comments/` prefix.
+
+| Rule                   | What it does                                                              | Why it is here                                      | Example                                                                                   |
+| ---------------------- | ------------------------------------------------------------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `require-description`  | Requires a nonempty explanation after `--` in checked directive comments. | Gives reviewers a reason for the exception.         | `// eslint-disable-next-line object-shorthand -- This fixture preserves external syntax.` |
+| `no-unlimited-disable` | Rejects disable comments that omit rule names, even if explained.         | Keeps an exception from disabling every lint check. | `/* eslint-disable */` fails; name the specific rule instead.                             |
+
+Explanations are required for `eslint-disable`, `eslint-disable-line`,
+`eslint-disable-next-line`, and inline `/* eslint ... */` rule configuration.
+The `ignore` option exempts `eslint-enable`, `eslint-env`, `exported`, `global`,
+and `globals` from this description requirement. Restoring checks or declaring
+globals does not need a second justification. Only the two selected plugin
+rules are enabled.
+
+The existing `reportUnusedDisableDirectives: 'error'` check rejects obsolete
+suppression comments. It remains the single enforcement mechanism for unused
+disables. ESLint explanations have no minimum character count; reviewers must
+judge their quality. The separate `@ts-expect-error` policy still requires at
+least 10 characters and controls TypeScript compiler errors.
+
+See the [description rule](https://eslint-community.github.io/eslint-plugin-eslint-comments/rules/require-description.html)
+and [rule-name requirement](https://eslint-community.github.io/eslint-plugin-eslint-comments/rules/no-unlimited-disable.html).
+
+### Handling false positives
+
+Keep `no-unnecessary-condition` enabled, with intentional constant loops allowed.
+When a diagnostic appears wrong, verify the runtime behavior first. Prefer a
+clear state representation that the checker understands, such as reading
+`signal.aborted` directly. If a straightforward change is unsuitable, suppress
+only the affected rule on the affected line and explain the limitation:
+
+```ts
+// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- The abort callback can change cancelled during await.
+if (cancelled) {
+  return 'Cancelled';
+}
+```
+
+The callback-state fixture reproduces the warning, verifies that the explained
+exception passes lint, and executes both cancellation and completion paths.
+It also checks that reading `signal.aborted` directly needs no suppression.
+This is a [documented TypeScript analysis limitation](https://typescript-eslint.io/rules/no-unnecessary-condition/#values-modified-within-function-calls).
+Keep a necessary runtime guard when the warning is a false positive.
 
 ## `.prettierrc.json`
 
@@ -530,21 +573,22 @@ are also known.
 
 ### Pinned development dependencies
 
-| Dependency                                        | Why it is needed                                                         | Example of its use                                                   |
-| ------------------------------------------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------- |
-| `@typescript/native: "npm:typescript@7.0.2"`      | Native TypeScript 7 compiler, installed under a local alias.             | Provides `tsc` for typechecking, builds, and compiler fixture tests. |
-| `typescript: "npm:@typescript/typescript6@6.0.2"` | Compatibility package providing the TypeScript 6 API expected by ESLint. | Typed lint rules inspect values using the older API.                 |
-| `@types/node@24.13.4`                             | Node 24 API declarations.                                                | Types for `process` and `node:fs`.                                   |
-| `eslint@10.10.0`                                  | Lint engine and flat-config helpers.                                     | `defineConfig` and `eslint .`.                                       |
-| `@eslint/js@10.0.1`                               | Core recommended JavaScript rules.                                       | Lint JavaScript utilities.                                           |
-| `@stylistic/eslint-plugin@5.10.0`                 | Maintained mixed-operator readability rule.                              | Reject ungrouped `base + count * price`.                             |
-| `typescript-eslint@8.70.0`                        | TypeScript parser, plugin, and strict preset.                            | Detect unhandled promises.                                           |
-| `globals@17.12.0`                                 | Known Node global names for ESLint.                                      | Recognize `Buffer`.                                                  |
-| `eslint-config-prettier@10.1.8`                   | Formatting-rule compatibility.                                           | Disable rules that fight Prettier.                                   |
-| `prettier@3.9.6`                                  | Deterministic formatting.                                                | `pnpm format`.                                                       |
-| `husky@9.1.7`                                     | Git hook installation and execution.                                     | Run `pnpm check` before committing.                                  |
-| `vite@8.2.2`                                      | Required Vitest peer for module loading and transformation.              | Loads the source modules during a test run.                          |
-| `vitest@5.0.0`                                    | Fast test runner.                                                        | Verify rejection of deliberately unsafe snippets.                    |
+| Dependency                                              | Why it is needed                                                         | Example of its use                                                   |
+| ------------------------------------------------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| `@typescript/native: "npm:typescript@7.0.2"`            | Native TypeScript 7 compiler, installed under a local alias.             | Provides `tsc` for typechecking, builds, and compiler fixture tests. |
+| `typescript: "npm:@typescript/typescript6@6.0.2"`       | Compatibility package providing the TypeScript 6 API expected by ESLint. | Typed lint rules inspect values using the older API.                 |
+| `@types/node@24.13.4`                                   | Node 24 API declarations.                                                | Types for `process` and `node:fs`.                                   |
+| `eslint@10.10.0`                                        | Lint engine and flat-config helpers.                                     | `defineConfig` and `eslint .`.                                       |
+| `@eslint/js@10.0.1`                                     | Core recommended JavaScript rules.                                       | Lint JavaScript utilities.                                           |
+| `@stylistic/eslint-plugin@5.10.0`                       | Maintained mixed-operator readability rule.                              | Reject ungrouped `base + count * price`.                             |
+| `@eslint-community/eslint-plugin-eslint-comments@4.8.0` | Checks explanations and rule names in ESLint suppressions.               | Reject an unexplained or blanket disable comment.                    |
+| `typescript-eslint@8.70.0`                              | TypeScript parser, plugin, and strict preset.                            | Detect unhandled promises.                                           |
+| `globals@17.12.0`                                       | Known Node global names for ESLint.                                      | Recognize `Buffer`.                                                  |
+| `eslint-config-prettier@10.1.8`                         | Formatting-rule compatibility.                                           | Disable rules that fight Prettier.                                   |
+| `prettier@3.9.6`                                        | Deterministic formatting.                                                | `pnpm format`.                                                       |
+| `husky@9.1.7`                                           | Git hook installation and execution.                                     | Run `pnpm check` before committing.                                  |
+| `vite@8.2.2`                                            | Required Vitest peer for module loading and transformation.              | Loads the source modules during a test run.                          |
+| `vitest@5.0.0`                                          | Fast test runner.                                                        | Verify rejection of deliberately unsafe snippets.                    |
 
 Versions are exact rather than ranges. Dependency updates should run the
 verification suite and be reviewed, particularly when they change preset rules.
@@ -706,7 +750,10 @@ to the actual tools:
   both JS and TS. Mixed-operator fixtures also run Prettier before checking the
   accepted grouped conditions and named arithmetic calculations.
   Fixtures cover leading/trailing ignored parameters, used ignored names, and
-  unused locals and catch bindings. An automatic-fix fixture
+  unused locals and catch bindings. Suppression fixtures check all three disable
+  forms, inline rule configuration, empty explanations, blanket disables,
+  re-enabling without a second explanation, and global declarations in JS and TS.
+  An automatic-fix fixture
   verifies that unsafe narrowing stays rejected without being rewritten into a forbidden `!`
   assertion. Lint snippets stay in memory.
 - **TypeScript 7:** invokes the native compiler CLI to check control flow,
@@ -725,6 +772,8 @@ to the actual tools:
   A source-map fixture checks embedded TypeScript content and a mapped Node error
   with `--enable-source-maps` after removing the fixture's source directory.
   It also verifies that successful typechecking emits no JavaScript or maps.
+  The callback-state fixture verifies both outcomes while retaining an explained
+  exception for the type-aware lint false positive.
 - **Tool selection:** verifies that `pnpm exec tsc` selects TypeScript 7.0.2
   while the API imported as `typescript` remains TypeScript 6.
 
@@ -732,14 +781,8 @@ The `.mjs` verification harness receives ordinary JavaScript linting; it is not
 part of the TypeScript application's emitted program. Each compiler/runtime
 subprocess has a 10-second timeout.
 
-## Decisions still open
+## Optional future policies
 
-These are not silently enabled as new policy in this baseline:
-
-- Broader readability policies: naming conventions, class member ordering, and
-  numerical limits on complexity, nesting, or function length.
-- The exact mechanism for enforcing explanations on ESLint suppressions and
-  handling application-specific cancellation false positives.
-
-These deferred choices can be reviewed independently without weakening the
-selected promise, type-safety, return-contract, or formatting checks.
+The selected baseline is implemented and verified. Naming conventions, class
+member ordering, and numerical limits on complexity, nesting, or function length
+remain optional future choices and are not enabled by this configuration.
