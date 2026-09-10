@@ -333,6 +333,16 @@ describe('the installed TypeScript 7 command-line configuration', () => {
       2532,
     ],
     [
+      'dot access to a key supplied only by an index signature',
+      'export function read(settings: Record<string, unknown>): unknown { return settings.temperature; }',
+      4111,
+    ],
+    [
+      'an unchecked dictionary value returned as definitely present',
+      "export function read(settings: Record<string, string>): string { return settings['model']; }",
+      2322,
+    ],
+    [
       'undefined assigned to an optional property',
       'export const value: { label?: string } = { label: undefined };',
       2375,
@@ -380,6 +390,16 @@ describe('the installed TypeScript 7 command-line configuration', () => {
     ]);
     expect(result.status, result.output).not.toBe(0);
     expect(result.output).toContain("Cannot find name 'document'");
+  });
+
+  it('accepts declared dot access and dictionary brackets in both the compiler and ESLint', async () => {
+    const source = `interface Settings { model: string; [key: string]: unknown; }
+      export function read(settings: Settings): { model: string; extra: unknown } {
+        return { model: settings.model, extra: settings['temperature'] };
+      }`;
+    const result = compile(source, ['--noEmit']);
+    expect(result.status, result.output).toBe(0);
+    expect(await lint(source)).toEqual([]);
   });
 
   it('emits valid code but writes nothing when the program has a type error', () => {
