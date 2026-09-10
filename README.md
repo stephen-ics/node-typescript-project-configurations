@@ -160,7 +160,7 @@ The package is pinned because this preset can change outside major releases.
 | `unbound-method`                                                                                              | Detects detached methods that may need their original `this`.            | Bind a stateful instance method before passing it as a callback.                 |
 | `only-throw-error`, `prefer-promise-reject-errors`, `use-unknown-in-catch-callback-variable`                  | Encourage useful error objects and safe error inspection.                | Throw `new Error('failed')`; inspect caught `unknown` before reading properties. |
 | `return-await`                                                                                                | Checks await usage where it affects error handling.                      | Await inside a try block when its catch must handle the rejection.               |
-| `no-unused-vars`, `no-var`, `prefer-const`, `prefer-rest-params`, `no-unnecessary-type-conversion`            | Supply the preset's existing baseline.                                   | Prefer `const` when a binding is never reassigned.                               |
+| `no-var`, `prefer-const`, `prefer-rest-params`, `no-unnecessary-type-conversion`                              | Supply the preset's existing baseline.                                   | Prefer `const` when a binding is never reassigned.                               |
 
 The pinned strict preset also includes these checks:
 
@@ -347,6 +347,32 @@ so review intentional constructor functions before converting them. The defaults
 also retain `no-unneeded-ternary`'s allowance for conditional default assignments;
 `prefer-nullish-coalescing` separately checks missing-value defaults. These rules
 add no naming conventions, class-ordering rules, or numerical complexity limits.
+
+### Unused parameters and local variables
+
+Both languages use the same `unusedVariableOptions` object: JavaScript applies
+it through `no-unused-vars`, and TypeScript through
+`@typescript-eslint/no-unused-vars`. These checks are **errors**. The TypeScript
+preset already disables the core rule for TS files, so no extra `off` entry is
+needed in our overrides.
+
+| Option                          | What it does                                                           | Why it is here                                       | Example                                                                        |
+| ------------------------------- | ---------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `args: 'all'`                   | Checks every parameter, including ones before the last used parameter. | Catches forgotten parameters regardless of position. | `items.map((item, index) => index)` reports the unused `item`.                 |
+| `argsIgnorePattern: '^_'`       | Allows unused parameter names that start with `_`, in any position.    | Makes intentional placeholders explicit.             | `items.map((_item, index) => index)` and `items.map((_item) => 42)` both pass. |
+| `reportUsedIgnorePattern: true` | Reports an ignored parameter when it is actually used.                 | Keeps the underscore's meaning accurate after edits. | Change `(_item) => _item` to `(item) => item`.                                 |
+
+The regex checks the parameter's name, not whether another parameter follows.
+Remove an unnecessary parameter when the signature can change; retain an
+underscore placeholder when keeping that parameter serves a purpose.
+
+There is no `varsIgnorePattern` or `caughtErrorsIgnorePattern` exemption.
+An unused local named `_scratch` still fails. A used local named `_scratch` is
+allowed: the underscore convention above applies to parameters. If a catch
+block does not need the error object, omit its binding with `catch { ... }`.
+Default checks for unused locals and catch bindings remain enabled without
+repeating their settings. See the
+[unused-variable options](https://eslint.org/docs/latest/rules/no-unused-vars#options).
 
 ### Prettier compatibility and exceptions
 
@@ -598,7 +624,9 @@ to the actual tools:
   braces, suppression rules, JavaScript coverage, generated empty object types,
   unused defaults, missing initialization, preserved error causes, and the
   selected TypeScript conventions, shorthand, branch simplifications, string
-  interpolation, and parameter order in both JS and TS. An automatic-fix fixture
+  interpolation, parameter order, and unused-binding policy in both JS and TS.
+  Fixtures cover leading/trailing ignored parameters, used ignored names, and
+  unused locals and catch bindings. An automatic-fix fixture
   verifies that unsafe narrowing stays rejected without being rewritten into a forbidden `!`
   assertion. Lint snippets stay in memory.
 - **TypeScript 7:** invokes the native compiler CLI to check control flow,
@@ -625,9 +653,8 @@ These are not silently enabled as new policy in this baseline:
 
 - Broader readability policies: naming conventions, class member ordering, and
   numerical limits on complexity, nesting, or function length.
-- Custom underscore exemptions, `args: 'all'`, and whether to duplicate unused
-  checks with `noUnusedLocals`/`noUnusedParameters`. The preset's current
-  `no-unused-vars` behavior remains in place.
+- Whether to duplicate ESLint unused-binding checks with the compiler options
+  `noUnusedLocals`/`noUnusedParameters`.
 - An explicit `no-mixed-operators` policy. Prettier compatibility remains active.
 - Packaging the selected compiler flags through `@tsconfig/strictest` instead
   of writing the chosen flags directly in this standalone file.
