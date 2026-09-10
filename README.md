@@ -67,9 +67,17 @@ Node will execute. The root configuration includes source tests in typechecking.
 | `exactOptionalPropertyTypes: true`         | Distinguishes an absent optional property from an explicitly supplied `undefined`.                         | Preserves the actual meaning of optional fields.                                               | `{ name: undefined }` is rejected for `{ name?: string }`.                                         |
 | `noImplicitReturns: true`                  | Checks inconsistent return paths.                                                                          | Avoids unintentionally returning `undefined` on one branch.                                    | A function returning a number on only one path is rejected.                                        |
 | `noImplicitOverride: true`                 | Requires `override` on class members that override a base member.                                          | Makes the relationship explicit and catches drift when a base API changes.                     | Write `override run(): void` in a subclass overriding `run`.                                       |
+| `noUnusedLocals: true`                     | Reports unused local declarations during typechecking and compilation.                                     | Catches unused code even when only the compiler runs.                                          | An unused `const scratch = 1` inside a function is rejected, including when named `_scratch`.      |
+| `noUnusedParameters: true`                 | Reports unused function parameters, except names starting with `_`.                                        | Gives compiler-only runs an independent unused-parameter check.                                | `function position(item: string, index: number): number { return index; }` requires `_item`.       |
 | `noFallthroughCasesInSwitch: true`         | Rejects a nonempty switch case that falls into the next case.                                              | Prevents accidentally executing another case after forgetting a break or return.               | A case that logs and then enters the next case is rejected.                                        |
 | `allowUnreachableCode: false`              | Treats compiler-detectable unreachable statements as errors.                                               | Dead statements can reveal a misplaced return or mistaken control flow.                        | A statement after an unconditional `return` is rejected.                                           |
 | `allowUnusedLabels: false`                 | Rejects labels that no break/continue uses.                                                                | Catches unused labels and statements that resemble mistyped object properties.                 | `unused: { console.log('x'); }` is rejected.                                                       |
+
+The two unused-code options deliberately overlap with ESLint. They make
+`pnpm typecheck` and `pnpm build` reject unused declarations even without a lint
+run. With `noEmitOnError`, these errors also prevent build output. TypeScript
+allows unused `_` parameters in any position; ESLint additionally reports an
+underscore parameter that is actually used. The checks supplement each other.
 
 `noPropertyAccessFromIndexSignature` distinguishes declared fields from keys
 accepted only by a dictionary's catch-all definition:
@@ -377,13 +385,46 @@ repeating their settings. See the
 ### Prettier compatibility and exceptions
 
 `eslint-config-prettier/flat` disables conflicting formatting rules. It also
-disables `curly` generally, so a final block restores **only `curly: all`**, which
-is compatible with Prettier. The verification suite checks that missing braces
-still fail; the compatibility checker can also be run directly:
+disables `curly` generally, so a final block restores **`curly: all`**, which
+is compatible with Prettier. That block also enables the following deliberate
+exception for JavaScript and TypeScript:
+
+| Rule                                     | What it does                                                                             | Why it is here                                              | Example                                          |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------ |
+| `@stylistic/no-mixed-operators: 'error'` | Requires grouping when different operators in a checked group have different precedence. | Makes the intended calculation or condition easier to read. | An ungrouped `base + count * price` is rejected. |
+
+We use the maintained rule from `@stylistic/eslint-plugin`, rather than ESLint's
+[deprecated core rule](https://eslint.org/docs/latest/rules/no-mixed-operators).
+Only this Stylistic rule is enabled; the plugin's formatting presets are not
+included. The default groups cover arithmetic, bitwise, comparison, logical,
+and `in`/`instanceof` operators. Different operators with the same precedence
+remain allowed, such as `base + fee - discount`. The rule does not require
+parentheses around every operator combination; for example, comparison and
+logical operators belong to separate groups. No custom groups are added for
+`??` or `?:`.
+
+For logical conditions, write `(active && verified) || admin` to show the grouping.
+Prettier preserves those parentheses, but removes some arithmetic
+parentheses, such as those in `base + (count * price)`. In that case, give the
+inner calculation a name so both checks pass:
+
+```ts
+const subtotal = count * price;
+const total = base + subtotal;
+```
+
+This is the [Prettier compatibility guidance](https://github.com/prettier/eslint-config-prettier#no-mixed-operators).
+The verification suite checks rejection of ungrouped expressions and acceptance
+of grouped conditions and named calculations after formatting. The compatibility
+checker can also be run directly:
 
 ```sh
 pnpm exec eslint-config-prettier src/example.ts
 ```
+
+It reports `@stylistic/no-mixed-operators` as a rule needing special attention;
+that is the documented exception above, not an unnoticed conflict. The formatter
+remains enabled, and code must pass both formatting and lint checks.
 
 Policy: any necessary ESLint suppression should name the specific rule and explain
 why it is necessary. The current configuration enforces unused-disable detection;
@@ -460,6 +501,7 @@ are also known.
 | `@types/node@24.13.4`                             | Node 24 API declarations.                                                | Types for `process` and `node:fs`.                                   |
 | `eslint@10.10.0`                                  | Lint engine and flat-config helpers.                                     | `defineConfig` and `eslint .`.                                       |
 | `@eslint/js@10.0.1`                               | Core recommended JavaScript rules.                                       | Lint JavaScript utilities.                                           |
+| `@stylistic/eslint-plugin@5.10.0`                 | Maintained mixed-operator readability rule.                              | Reject ungrouped `base + count * price`.                             |
 | `typescript-eslint@8.70.0`                        | TypeScript parser, plugin, and strict preset.                            | Detect unhandled promises.                                           |
 | `globals@17.12.0`                                 | Known Node global names for ESLint.                                      | Recognize `Buffer`.                                                  |
 | `eslint-config-prettier@10.1.8`                   | Formatting-rule compatibility.                                           | Disable rules that fight Prettier.                                   |
@@ -624,14 +666,18 @@ to the actual tools:
   braces, suppression rules, JavaScript coverage, generated empty object types,
   unused defaults, missing initialization, preserved error causes, and the
   selected TypeScript conventions, shorthand, branch simplifications, string
-  interpolation, parameter order, and unused-binding policy in both JS and TS.
+  interpolation, parameter order, mixed operators, and unused-binding policy in
+  both JS and TS. Mixed-operator fixtures also run Prettier before checking the
+  accepted grouped conditions and named arithmetic calculations.
   Fixtures cover leading/trailing ignored parameters, used ignored names, and
   unused locals and catch bindings. An automatic-fix fixture
   verifies that unsafe narrowing stays rejected without being rewritten into a forbidden `!`
   assertion. Lint snippets stay in memory.
 - **TypeScript 7:** invokes the native compiler CLI to check control flow,
-  Node-only declarations, dictionary access, build file selection, and emission
-  on errors. A shared valid fixture checks that ESLint accepts dictionary
+  Node-only declarations, dictionary access, unused locals and parameters,
+  build file selection, and emission on errors. Fixtures verify that unused
+  code blocks production output without ESLint and that intentional `_`
+  parameters remain accepted. A shared valid fixture checks that ESLint accepts dictionary
   brackets required by the compiler while declared fields still use dots.
   Each compiler fixture copies the real configuration into a fresh
   `tmp/compiler-*` directory and removes that directory after the check.
@@ -653,9 +699,6 @@ These are not silently enabled as new policy in this baseline:
 
 - Broader readability policies: naming conventions, class member ordering, and
   numerical limits on complexity, nesting, or function length.
-- Whether to duplicate ESLint unused-binding checks with the compiler options
-  `noUnusedLocals`/`noUnusedParameters`.
-- An explicit `no-mixed-operators` policy. Prettier compatibility remains active.
 - Packaging the selected compiler flags through `@tsconfig/strictest` instead
   of writing the chosen flags directly in this standalone file.
 - Source maps.
