@@ -121,6 +121,7 @@ compiler does not catch all of these issues.
 | `globals.node`                           | Declares Node global names to ESLint.                                               | Avoids incorrectly flagging `process` or `Buffer` as undefined.                      | A Node script can read `process.argv`.                                                 |
 | `js.configs.recommended`                 | Enables ESLint's core recommended checks.                                           | Supplies the general JavaScript baseline.                                            | Duplicate cases and invalid language constructs receive diagnostics.                   |
 | `tseslint.configs.strictTypeChecked`     | Adds the strict TypeScript baseline, including type-aware rules.                    | Detects unsafe values, promises, and operations that syntax-only lint cannot assess. | An unsafe value returned from `JSON.parse` cannot silently flow into a typed variable. |
+| `tseslint.configs.stylisticTypeChecked`  | Adds TypeScript readability conventions, with one documented override below.        | Keeps a coherent preset while retaining our safety policy.                           | Requires interfaces for object shapes and prefers `.find()` for one matching element.  |
 | `projectService: true`                   | Obtains TypeScript project information for linting.                                 | Allows ESLint to know whether an expression is a promise or an unsafe value.         | A forgotten promise is recognized by its type.                                         |
 | `tsconfigRootDir: import.meta.dirname`   | Anchors project lookup to this config's directory.                                  | Makes project resolution independent of the caller's working directory.              | Running ESLint from a tool still finds this repository's TS configuration.             |
 | `reportUnusedDisableDirectives: 'error'` | Errors on unused ESLint disable comments.                                           | Removes stale exceptions that could hide later mistakes.                             | A disable comment for `eqeqeq` above a constant declaration fails.                     |
@@ -173,6 +174,66 @@ rule. Inspect the complete effective policy with:
 ```sh
 pnpm exec eslint --print-config src/example.ts
 ```
+
+### TypeScript readability conventions
+
+We also extend `tseslint.configs.stylisticTypeChecked`. It bundles conventions
+for clearer, more consistent TypeScript, including checks that use type
+information. Keeping the preset in `extends` avoids maintaining a separate list
+of individual rules. Prettier still handles formatting.
+
+The pinned preset supplies these **20 enabled rules**, all at severity **error**.
+Names below omit the `@typescript-eslint/` prefix. These are accepted conventions,
+not a claim that every alternative is a bug.
+
+| Rule                              | What it does and why                                                                                                                             | Example                                                                                |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| `adjacent-overload-signatures`    | Keeps overloads of the same function together so its supported call forms are easy to review.                                                    | Group all `parse(...)` signatures before another method's signatures.                  |
+| `array-type`                      | Uses bracket array types consistently.                                                                                                           | Prefer `string[]` to `Array<string>`.                                                  |
+| `ban-tslint-comment`              | Rejects obsolete TSLint directives that do not control our ESLint checks.                                                                        | Remove `// tslint:disable-next-line`.                                                  |
+| `class-literal-property-style`    | Uses readonly fields for literal-valued class properties.                                                                                        | Prefer `readonly kind = 'job'` to a getter that only returns `'job'`.                  |
+| `consistent-generic-constructors` | Puts generic arguments on the constructor call to avoid inconsistent placement.                                                                  | Prefer `const names = new Set<string>()` to `const names: Set<string> = new Set()`.    |
+| `consistent-indexed-object-style` | Uses `Record` for dictionary types where applicable.                                                                                             | Prefer `Record<string, number>` to `{ [key: string]: number }`.                        |
+| `consistent-type-assertions`      | Uses `as` syntax for assertions that our safety rules permit. It does not make unsafe narrowing acceptable.                                      | Prefer `value as unknown` to `<unknown>value`; `as const` remains permitted.           |
+| `consistent-type-definitions`     | Uses interfaces for object shapes, giving them a consistent declaration style.                                                                   | Prefer `interface User { name: string }` to `type User = { name: string }`.            |
+| `dot-notation`                    | Uses dot access when a property's name permits it.                                                                                               | Prefer `user.name` to `user['name']`; computed `user[key]` is still valid.             |
+| `no-confusing-non-null-assertion` | Rejects confusing placement of non-null assertions. Our broader assertion ban already rejects these too.                                         | `value! == other` is rejected.                                                         |
+| `no-empty-function`               | Flags unexplained empty functions, which can indicate unfinished code.                                                                           | `function report(): void {}` fails; a comment inside can explain an intentional no-op. |
+| `no-inferrable-types`             | Omits annotations that TypeScript can infer from initial or default values. Function return annotations are still required by our separate rule. | Prefer `count = 3` to `count: number = 3` in a parameter list.                         |
+| `prefer-find`                     | Expresses a search for one matching array element directly.                                                                                      | Prefer `users.find(matches)` to `users.filter(matches)[0]`.                            |
+| `prefer-for-of`                   | Uses element iteration when a numeric loop index serves only to access each item.                                                                | Prefer `for (const item of items)` when the index is unnecessary.                      |
+| `prefer-function-type`            | Uses function-type syntax for types consisting only of a call signature.                                                                         | Prefer `type Callback = () => void` to `interface Callback { (): void }`.              |
+| `prefer-includes`                 | Expresses membership checks directly.                                                                                                            | Prefer `names.includes(name)` to `names.indexOf(name) !== -1`.                         |
+| `prefer-nullish-coalescing`       | Encourages defaults based on missing values.                                                                                                     | `volume ?? 50` preserves zero, while `volume \|\| 50` replaces it.                     |
+| `prefer-optional-chain`           | Simplifies repeated checks before property access.                                                                                               | For an object that may be undefined, prefer `user?.name` to `user && user.name`.       |
+| `prefer-regexp-exec`              | Uses the regex matching method when a pattern has no global flag.                                                                                | Prefer `/job/.exec(text)` to `text.match(/job/)`.                                      |
+| `prefer-string-starts-ends-with`  | Makes prefix and suffix checks explicit.                                                                                                         | Prefer `name.startsWith('job')` to `name.slice(0, 3) === 'job'`.                       |
+
+The preset disables the core `dot-notation` and `no-empty-function` rules and
+enables their TypeScript-aware replacements. These conventions apply to
+`src/**/*.ts`; JavaScript tools retain their existing checks.
+
+There is one deliberate override:
+
+```js
+// Its suggested ! assertion is forbidden by our safety rules.
+'@typescript-eslint/non-nullable-type-assertion-style': 'off',
+```
+
+That rule would change a nullable `value as string` into `value!`. Our safety
+rules reject both expressions, so disabling this style rule removes a redundant
+error and an automatic fix that still fails lint. It does not allow unsafe
+assertions: `no-unsafe-type-assertion` and `no-non-null-assertion` remain enabled.
+Check the value before using it. See the
+[preset documentation](https://typescript-eslint.io/users/configs/#stylistic-type-checked)
+and the [disabled rule's behavior](https://typescript-eslint.io/rules/non-nullable-type-assertion-style/).
+
+Review changes that affect behavior: `||` can intentionally replace zero or an
+empty string, and optional chaining can change a result from `null` or `false`
+to `undefined`. Keep the intended behavior when addressing a finding. The
+optional-chain rule retains its default restriction on automatic fixes that
+change the expression's result type. The runtime does not gain validation from
+these stylistic checks.
 
 ### Explicit TypeScript rules and overrides
 
@@ -487,8 +548,10 @@ to the actual tools:
 - **ESLint:** loads the installed config and its TypeScript 6 compatibility API.
   Checks return contracts, unsafe values/assertions, promises, union coverage,
   braces, suppression rules, JavaScript coverage, generated empty object types,
-  unused defaults, missing initialization, and preserved error causes. Lint
-  snippets stay in memory.
+  unused defaults, missing initialization, preserved error causes, and the
+  selected TypeScript conventions. An automatic-fix fixture verifies that unsafe
+  narrowing stays rejected without being rewritten into a forbidden `!`
+  assertion. Lint snippets stay in memory.
 - **TypeScript 7:** invokes the native compiler CLI to check control flow,
   Node-only declarations, build file selection, and emission on errors.
   Each compiler fixture copies the real configuration into a fresh
@@ -509,7 +572,7 @@ subprocess has a 10-second timeout.
 
 These are not silently enabled as new policy in this baseline:
 
-- `stylisticTypeChecked` and extra readability rules such as `object-shorthand`.
+- Extra readability rules such as `object-shorthand`.
 - `noPropertyAccessFromIndexSignature`.
 - Custom underscore exemptions, `args: 'all'`, and whether to duplicate unused
   checks with `noUnusedLocals`/`noUnusedParameters`. The preset's current
