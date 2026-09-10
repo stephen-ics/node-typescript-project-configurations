@@ -59,16 +59,38 @@ Node will execute. The root configuration includes source tests in typechecking.
 
 ### Type safety and control flow
 
-| Setting                            | What it does                                                                           | Why it is here                                                                   | Example                                                        |
-| ---------------------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `strict: true`                     | Enables TypeScript's strict checking family, including implicit-`any` and null checks. | Provides the central safety baseline.                                            | An untyped parameter in `function read(value) {}` is rejected. |
-| `noUncheckedIndexedAccess: true`   | Adds possible `undefined` to unchecked array/dictionary reads.                         | An index does not guarantee an element exists.                                   | Check `names[0]` before calling `.toUpperCase()`.              |
-| `exactOptionalPropertyTypes: true` | Distinguishes an absent optional property from an explicitly supplied `undefined`.     | Preserves the actual meaning of optional fields.                                 | `{ name: undefined }` is rejected for `{ name?: string }`.     |
-| `noImplicitReturns: true`          | Checks inconsistent return paths.                                                      | Avoids unintentionally returning `undefined` on one branch.                      | A function returning a number on only one path is rejected.    |
-| `noImplicitOverride: true`         | Requires `override` on class members that override a base member.                      | Makes the relationship explicit and catches drift when a base API changes.       | Write `override run(): void` in a subclass overriding `run`.   |
-| `noFallthroughCasesInSwitch: true` | Rejects a nonempty switch case that falls into the next case.                          | Prevents accidentally executing another case after forgetting a break or return. | A case that logs and then enters the next case is rejected.    |
-| `allowUnreachableCode: false`      | Treats compiler-detectable unreachable statements as errors.                           | Dead statements can reveal a misplaced return or mistaken control flow.          | A statement after an unconditional `return` is rejected.       |
-| `allowUnusedLabels: false`         | Rejects labels that no break/continue uses.                                            | Catches unused labels and statements that resemble mistyped object properties.   | `unused: { console.log('x'); }` is rejected.                   |
+| Setting                                    | What it does                                                                                               | Why it is here                                                                                 | Example                                                                                            |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `strict: true`                             | Enables TypeScript's strict checking family, including implicit-`any` and null checks.                     | Provides the central safety baseline.                                                          | An untyped parameter in `function read(value) {}` is rejected.                                     |
+| `noUncheckedIndexedAccess: true`           | Adds possible `undefined` to unchecked array/dictionary reads.                                             | An index does not guarantee an element exists.                                                 | Check `names[0]` before calling `.toUpperCase()`.                                                  |
+| `noPropertyAccessFromIndexSignature: true` | Requires brackets for keys known only through an index signature. Explicitly declared fields can use dots. | Makes catch-all dictionary lookups visible and flags accidental dot access to undeclared keys. | With `Record<string, unknown>`, use `settings['temperature']`; `settings.temperature` is rejected. |
+| `exactOptionalPropertyTypes: true`         | Distinguishes an absent optional property from an explicitly supplied `undefined`.                         | Preserves the actual meaning of optional fields.                                               | `{ name: undefined }` is rejected for `{ name?: string }`.                                         |
+| `noImplicitReturns: true`                  | Checks inconsistent return paths.                                                                          | Avoids unintentionally returning `undefined` on one branch.                                    | A function returning a number on only one path is rejected.                                        |
+| `noImplicitOverride: true`                 | Requires `override` on class members that override a base member.                                          | Makes the relationship explicit and catches drift when a base API changes.                     | Write `override run(): void` in a subclass overriding `run`.                                       |
+| `noFallthroughCasesInSwitch: true`         | Rejects a nonempty switch case that falls into the next case.                                              | Prevents accidentally executing another case after forgetting a break or return.               | A case that logs and then enters the next case is rejected.                                        |
+| `allowUnreachableCode: false`              | Treats compiler-detectable unreachable statements as errors.                                               | Dead statements can reveal a misplaced return or mistaken control flow.                        | A statement after an unconditional `return` is rejected.                                           |
+| `allowUnusedLabels: false`                 | Rejects labels that no break/continue uses.                                                                | Catches unused labels and statements that resemble mistyped object properties.                 | `unused: { console.log('x'); }` is rejected.                                                       |
+
+`noPropertyAccessFromIndexSignature` distinguishes declared fields from keys
+accepted only by a dictionary's catch-all definition:
+
+```ts
+interface Settings {
+  model: string;
+  [key: string]: unknown;
+}
+
+declare const settings: Settings;
+settings.model; // Declared field: dot access is allowed.
+settings['temperature']; // Dictionary lookup: brackets are required.
+```
+
+Brackets do not validate a value or guarantee that a key exists. The extra value
+above remains `unknown`; `noUncheckedIndexedAccess` separately accounts for
+possibly missing dictionary entries. Our TypeScript-aware `dot-notation` rule
+honors this compiler option automatically, so no ESLint override is needed.
+See the [compiler option](https://www.typescriptlang.org/tsconfig/noPropertyAccessFromIndexSignature.html)
+and [ESLint compatibility](https://typescript-eslint.io/rules/dot-notation/).
 
 ### Imports, emission, and dependency declarations
 
@@ -196,7 +218,7 @@ not a claim that every alternative is a bug.
 | `consistent-indexed-object-style` | Uses `Record` for dictionary types where applicable.                                                                                             | Prefer `Record<string, number>` to `{ [key: string]: number }`.                        |
 | `consistent-type-assertions`      | Uses `as` syntax for assertions that our safety rules permit. It does not make unsafe narrowing acceptable.                                      | Prefer `value as unknown` to `<unknown>value`; `as const` remains permitted.           |
 | `consistent-type-definitions`     | Uses interfaces for object shapes, giving them a consistent declaration style.                                                                   | Prefer `interface User { name: string }` to `type User = { name: string }`.            |
-| `dot-notation`                    | Uses dot access when a property's name permits it.                                                                                               | Prefer `user.name` to `user['name']`; computed `user[key]` is still valid.             |
+| `dot-notation`                    | Prefers dot access for declared fields; honors the compiler's bracket requirement for dictionary keys.                                           | Prefer `user.name` to `user['name']`; computed `user[key]` is still valid.             |
 | `no-confusing-non-null-assertion` | Rejects confusing placement of non-null assertions. Our broader assertion ban already rejects these too.                                         | `value! == other` is rejected.                                                         |
 | `no-empty-function`               | Flags unexplained empty functions, which can indicate unfinished code.                                                                           | `function report(): void {}` fails; a comment inside can explain an intentional no-op. |
 | `no-inferrable-types`             | Omits annotations that TypeScript can infer from initial or default values. Function return annotations are still required by our separate rule. | Prefer `count = 3` to `count: number = 3` in a parameter list.                         |
@@ -580,7 +602,9 @@ to the actual tools:
   verifies that unsafe narrowing stays rejected without being rewritten into a forbidden `!`
   assertion. Lint snippets stay in memory.
 - **TypeScript 7:** invokes the native compiler CLI to check control flow,
-  Node-only declarations, build file selection, and emission on errors.
+  Node-only declarations, dictionary access, build file selection, and emission
+  on errors. A shared valid fixture checks that ESLint accepts dictionary
+  brackets required by the compiler while declared fields still use dots.
   Each compiler fixture copies the real configuration into a fresh
   `tmp/compiler-*` directory and removes that directory after the check.
   Invalid fixtures never enter application `src` or the shared `dist` folder.
@@ -601,7 +625,6 @@ These are not silently enabled as new policy in this baseline:
 
 - Broader readability policies: naming conventions, class member ordering, and
   numerical limits on complexity, nesting, or function length.
-- `noPropertyAccessFromIndexSignature`.
 - Custom underscore exemptions, `args: 'all'`, and whether to duplicate unused
   checks with `noUnusedLocals`/`noUnusedParameters`. The preset's current
   `no-unused-vars` behavior remains in place.
