@@ -300,6 +300,31 @@ These additions apply to both the JavaScript tooling and the TypeScript source.
 | `prefer-object-has-own`                 | Prefers `Object.hasOwn` to the indirect prototype-call pattern.   | Expresses an own-property check directly.                                      | Use `Object.hasOwn(value, 'name')`.                                                    |
 | `radix`                                 | Requires an explicit base for `parseInt`.                         | Makes parsing intent visible.                                                  | Use `parseInt(text, 10)`.                                                              |
 
+The additional readability rules are also errors in both JavaScript and
+TypeScript. They cover conventions outside the TypeScript stylistic preset:
+
+| Rule                                                           | What it does                                                                                                | Why it is here                                                                      | Example                                                                                                                              |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `object-shorthand: ['error', 'always']`                        | Requires shorthand for matching property names and ordinary object methods.                                 | Removes repetition and keeps object declarations consistent.                        | Prefer `{ model }` to `{ model: model }`, and `label(): string { return 'job'; }` to `label: function (): string { return 'job'; }`. |
+| `no-else-return`                                               | Removes an unnecessary `else` after a branch that returns. Its default allows `else if` chains.             | Reduces nesting while keeping the remaining path visible.                           | Prefer `if (ready) { return 'ready'; } return 'waiting';` over wrapping the last return in `else`.                                   |
+| `no-lonely-if`                                                 | Rejects an `else` containing only another `if`.                                                             | Expresses the branch chain directly.                                                | Use `else if (pending) { report(); }` instead of `else { if (pending) { report(); } }`.                                              |
+| `no-unneeded-ternary`                                          | Rejects conditional expressions that merely reproduce a boolean condition.                                  | Removes needless branching from simple checks.                                      | Prefer `count > 0` to `count > 0 ? true : false`.                                                                                    |
+| `prefer-template`                                              | Requires template literals when combining a string literal with a value.                                    | Makes interpolation easier to scan.                                                 | Prefer `` `Hello ${name}` `` to `'Hello ' + name`.                                                                                   |
+| `default-param-last` / `@typescript-eslint/default-param-last` | Places defaulted parameters after required parameters; the TS version also understands optional parameters. | Callers can omit defaults without passing a placeholder before a required argument. | Prefer `label(name: string, prefix = 'Hello')` to `label(prefix = 'Hello', name: string)`.                                           |
+
+JavaScript uses the core `default-param-last` rule. The TypeScript block disables
+that core rule and enables its TypeScript-aware replacement to avoid duplicate
+or incorrect diagnostics. Moving an existing parameter requires reviewing call
+sites; the rule does not automatically reorder an API. See the
+[TypeScript extension documentation](https://typescript-eslint.io/rules/default-param-last/).
+
+Object shorthand leaves arrow functions and differently named properties such as
+`{ model: selectedModel }` alone. Shorthand methods cannot be called with `new`,
+so review intentional constructor functions before converting them. The defaults
+also retain `no-unneeded-ternary`'s allowance for conditional default assignments;
+`prefer-nullish-coalescing` separately checks missing-value defaults. These rules
+add no naming conventions, class-ordering rules, or numerical complexity limits.
+
 ### Prettier compatibility and exceptions
 
 `eslint-config-prettier/flat` disables conflicting formatting rules. It also
@@ -549,8 +574,9 @@ to the actual tools:
   Checks return contracts, unsafe values/assertions, promises, union coverage,
   braces, suppression rules, JavaScript coverage, generated empty object types,
   unused defaults, missing initialization, preserved error causes, and the
-  selected TypeScript conventions. An automatic-fix fixture verifies that unsafe
-  narrowing stays rejected without being rewritten into a forbidden `!`
+  selected TypeScript conventions, shorthand, branch simplifications, string
+  interpolation, and parameter order in both JS and TS. An automatic-fix fixture
+  verifies that unsafe narrowing stays rejected without being rewritten into a forbidden `!`
   assertion. Lint snippets stay in memory.
 - **TypeScript 7:** invokes the native compiler CLI to check control flow,
   Node-only declarations, build file selection, and emission on errors.
@@ -572,7 +598,8 @@ subprocess has a 10-second timeout.
 
 These are not silently enabled as new policy in this baseline:
 
-- Extra readability rules such as `object-shorthand`.
+- Broader readability policies: naming conventions, class member ordering, and
+  numerical limits on complexity, nesting, or function length.
 - `noPropertyAccessFromIndexSignature`.
 - Custom underscore exemptions, `args: 'all'`, and whether to duplicate unused
   checks with `noUnusedLocals`/`noUnusedParameters`. The preset's current
