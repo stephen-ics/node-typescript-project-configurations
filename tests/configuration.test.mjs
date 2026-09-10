@@ -517,11 +517,54 @@ describe('the installed TypeScript 7 command-line configuration', () => {
     const valid = compile('export const value: number = 1;');
     expect(valid.status, valid.output).toBe(0);
     expect(valid.writes).toContain('compiler-probe.js');
+    expect(valid.writes).toContain('compiler-probe.js.map');
 
     const invalid = compile('export const value: number = "wrong";');
     expect(invalid.status, invalid.output).not.toBe(0);
     expect(invalid.output).toContain('error TS2322:');
     expect(invalid.writes).toEqual([]);
+  });
+
+  it('embeds TypeScript in separate maps and maps Node errors without the source directory', () => {
+    const source = [
+      'interface FailureContext {',
+      '  message: string;',
+      '}',
+      '',
+      'function fail(context: FailureContext): never {',
+      '  throw new Error(context.message);',
+      '}',
+      '',
+      "fail({ message: 'source map fixture' });",
+    ].join('\n');
+
+    withCompilerFixture(source, (directory) => {
+      const typecheck = runCompiler(
+        ['-p', 'tsconfig.json', '--noEmit'],
+        directory,
+      );
+      expect(typecheck.status, typecheck.output).toBe(0);
+      expect(existsSync(resolve(directory, 'dist'))).toBe(false);
+
+      const build = runCompiler(['-p', 'tsconfig.build.json'], directory);
+      expect(build.status, build.output).toBe(0);
+      const sourceMap = JSON.parse(
+        readFileSync(resolve(directory, 'dist/compiler-probe.js.map'), 'utf8'),
+      );
+      expect(sourceMap.sources).toEqual(['../src/compiler-probe.ts']);
+      expect(sourceMap.sourcesContent).toEqual([source]);
+
+      // Simulate a deployment that contains only the compiled output and maps.
+      rmSync(resolve(directory, 'src'), { recursive: true, force: true });
+      const runtime = run(
+        process.execPath,
+        ['--enable-source-maps', 'dist/compiler-probe.js'],
+        directory,
+      );
+      expect(runtime.status, runtime.output).toBe(1);
+      expect(runtime.output).toContain('Error: source map fixture');
+      expect(runtime.output).toMatch(/src\/compiler-probe\.ts:6:\d+/);
+    });
   });
 
   it('compiles ES2025 syntax and APIs and executes the emitted module in Node', () => {
