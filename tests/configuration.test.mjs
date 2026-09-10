@@ -32,6 +32,44 @@ async function lint(source, file = 'src/example.ts') {
 }
 
 describe('the installed ESLint configuration', () => {
+  describe.each([
+    ['TypeScript', 'src/example.ts', '@typescript-eslint/no-unused-vars'],
+    ['JavaScript', 'tests/probe.mjs', 'no-unused-vars'],
+  ])('unused bindings in %s', (_label, file, rule) => {
+    it.each([
+      [
+        'unmarked unused parameters before a used parameter',
+        "export const positions = ['a'].map((item, index) => index);",
+      ],
+      [
+        'used parameters still marked as ignored',
+        "export const names = ['a'].map((_item) => _item);",
+      ],
+      [
+        'unused locals even with an underscore',
+        'const _scratch = 1; export const value = 2;',
+      ],
+      [
+        'unused catch bindings even with an underscore',
+        "try { JSON.parse('invalid'); } catch (_error) { console.log('ignored'); }",
+      ],
+    ])('rejects %s', async (_description, source) => {
+      const messages = await lint(source, file);
+      expect(messages.map((message) => message.ruleId)).toEqual([rule]);
+      expect(messages[0].severity).toBe(2);
+    });
+
+    it('accepts ignored parameters in any position without exempting local names', async () => {
+      const source = `export const positions = ['a'].map((_item, index) => index);
+        export const names = ['a'].map((item, _index) => item);
+        export const constants = ['a'].map((_item) => 42);
+        const _local = 'used';
+        export const local = _local;
+        try { JSON.parse('invalid'); } catch { console.log('ignored'); }`;
+      expect(await lint(source, file)).toEqual([]);
+    });
+  });
+
   it.each([
     [
       'internal return types',

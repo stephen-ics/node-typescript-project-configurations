@@ -4,6 +4,12 @@ import prettier from 'eslint-config-prettier/flat';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
+const unusedVariableOptions = {
+  args: 'all',
+  argsIgnorePattern: '^_',
+  reportUsedIgnorePattern: true,
+};
+
 export default defineConfig(
   globalIgnores([
     'node_modules/**',
@@ -39,7 +45,10 @@ export default defineConfig(
   {
     files: ['**/*.{js,mjs,cjs}'],
     extends: [js.configs.recommended],
-    rules: { 'default-param-last': 'error' },
+    rules: {
+      'default-param-last': 'error',
+      'no-unused-vars': ['error', unusedVariableOptions],
+    },
   },
   {
     files: ['src/**/*.ts'],
@@ -57,6 +66,7 @@ export default defineConfig(
     },
     rules: {
       // Explicit overrides express project policy; other safety rules come from the preset.
+      '@typescript-eslint/no-unused-vars': ['error', unusedVariableOptions],
       '@typescript-eslint/default-param-last': 'error',
       '@typescript-eslint/ban-ts-comment': [
         'error',
