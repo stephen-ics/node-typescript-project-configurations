@@ -12,6 +12,7 @@ import {
 import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { ESLint } from 'eslint';
+import { format, resolveConfig } from 'prettier';
 import lintTypeScript from 'typescript';
 import { describe, expect, it } from 'vitest';
 
@@ -32,6 +33,48 @@ async function lint(source, file = 'src/example.ts') {
 }
 
 describe('the installed ESLint configuration', () => {
+  describe.each(['src/example.ts', 'tests/probe.mjs'])(
+    'mixed operators in %s',
+    (file) => {
+      it.each([
+        [
+          'logical operators without grouping',
+          'export const allowed = [{ active: true, verified: false, admin: false }].map(({ active, verified, admin }) => active && verified || admin);',
+        ],
+        [
+          'arithmetic operators without grouping',
+          'export const totals = [{ base: 1, count: 2, price: 3 }].map(({ base, count, price }) => base + count * price);',
+        ],
+      ])('rejects %s', async (_label, source) => {
+        const messages = await lint(source, file);
+        expect(messages.map((message) => message.ruleId)).toEqual([
+          '@stylistic/no-mixed-operators',
+          '@stylistic/no-mixed-operators',
+        ]);
+        expect(messages.every((message) => message.severity === 2)).toBe(true);
+      });
+
+      it('accepts clear grouping and named calculations after Prettier runs', async () => {
+        const source = `export const results = [{ base: 1, count: 2, price: 3, active: true, verified: false, admin: false }]
+          .map(({ base, count, price, active, verified, admin }) => {
+            const subtotal = count * price;
+            return {
+              total: base + subtotal,
+              scaled: (base + count) * price,
+              delta: base + count - price,
+              allowed: (active && verified) || admin,
+            };
+          });`;
+        const filepath = resolve(root, file);
+        const formatted = await format(source, {
+          ...(await resolveConfig(filepath)),
+          filepath,
+        });
+        expect(await lint(formatted, file)).toEqual([]);
+      });
+    },
+  );
+
   describe.each([
     ['TypeScript', 'src/example.ts', '@typescript-eslint/no-unused-vars'],
     ['JavaScript', 'tests/probe.mjs', 'no-unused-vars'],
@@ -407,6 +450,16 @@ describe('the installed TypeScript 7 command-line configuration', () => {
     ],
     ['unused labels', 'unused: { console.log(1); } export {};', 7028],
     [
+      'unused local variables even with an underscore',
+      "export function label(): string { const _scratch = 1; return 'ready'; }",
+      6133,
+    ],
+    [
+      'unmarked unused parameters before a used parameter',
+      'export function position(item: string, index: number): number { return index; }',
+      6133,
+    ],
+    [
       'unresolved side-effect imports',
       "import './missing-configuration-fixture.js'; export {};",
       2882,
@@ -428,6 +481,26 @@ describe('the installed TypeScript 7 command-line configuration', () => {
     ]);
     expect(result.status, result.output).not.toBe(0);
     expect(result.output).toContain("Cannot find name 'document'");
+  });
+
+  it('accepts intentionally unused underscore parameters in any position', () => {
+    const source = `export function leading(_item: string, index: number): number { return index; }
+      export function trailing(item: string, _index: number): string { return item; }
+      export function only(_item: string): number { return 42; }`;
+    const result = compile(source, ['--noEmit']);
+    expect(result.status, result.output).toBe(0);
+  });
+
+  it('blocks production output for unused code without running ESLint', () => {
+    withCompilerFixture(
+      "const scratch = 1; export const label = 'ready';",
+      (directory) => {
+        const result = runCompiler(['-p', 'tsconfig.build.json'], directory);
+        expect(result.status, result.output).not.toBe(0);
+        expect(result.output).toContain('error TS6133:');
+        expect(existsSync(resolve(directory, 'dist'))).toBe(false);
+      },
+    );
   });
 
   it('accepts declared dot access and dictionary brackets in both the compiler and ESLint', async () => {

@@ -1,4 +1,5 @@
 import js from '@eslint/js';
+import stylistic from '@stylistic/eslint-plugin';
 import { defineConfig, globalIgnores } from 'eslint/config';
 import prettier from 'eslint-config-prettier/flat';
 import globals from 'globals';
@@ -132,7 +133,12 @@ export default defineConfig(
   prettier,
   {
     files: ['**/*.{js,mjs,cjs,ts}'],
-    // Prettier disables curly generally; the 'all' option is compatible with formatting.
-    rules: { curly: ['error', 'all'] },
+    plugins: { '@stylistic': stylistic },
+    rules: {
+      // Prettier disables curly generally; the 'all' option is compatible with formatting.
+      curly: ['error', 'all'],
+      // Intentional exception: split arithmetic if Prettier removes required parentheses.
+      '@stylistic/no-mixed-operators': 'error',
+    },
   },
 );
