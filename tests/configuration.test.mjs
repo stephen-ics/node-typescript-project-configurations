@@ -34,6 +34,81 @@ async function lint(source, file = 'src/example.ts') {
 
 describe('the installed ESLint configuration', () => {
   describe.each(['src/example.ts', 'tests/probe.mjs'])(
+    'suppression policy in %s',
+    (file) => {
+      const longForm =
+        "const name = 'worker'; export const options = { name: name };";
+
+      it.each([
+        [
+          'next-line disables',
+          `// eslint-disable-next-line object-shorthand REASON\n${longForm}`,
+        ],
+        [
+          'same-line disables',
+          `${longForm} // eslint-disable-line object-shorthand REASON`,
+        ],
+        [
+          'block disables',
+          `/* eslint-disable object-shorthand REASON */\n${longForm}\n/* eslint-enable object-shorthand */`,
+        ],
+        [
+          'inline rule configuration',
+          `/* eslint object-shorthand: off REASON */\n${longForm}`,
+        ],
+      ])('requires explanations for %s', async (_label, template) => {
+        for (const reason of ['', '--   ']) {
+          const messages = await lint(template.replace('REASON', reason), file);
+          expect(messages.map((message) => message.ruleId)).toEqual([
+            '@eslint-community/eslint-comments/require-description',
+          ]);
+          expect(messages[0].severity).toBe(2);
+        }
+        const explained = template.replace(
+          'REASON',
+          '-- This fixture reproduces the external long-form object syntax.',
+        );
+        expect(await lint(explained, file)).toEqual([]);
+      });
+
+      it.each([
+        [
+          'next-line disables',
+          `// eslint-disable-next-line -- This fixture reproduces external syntax.\n${longForm}`,
+        ],
+        [
+          'same-line disables',
+          `${longForm} // eslint-disable-line -- This fixture reproduces external syntax.`,
+        ],
+        [
+          'block disables',
+          `/* eslint-disable -- This fixture reproduces external syntax. */\n${longForm}\n/* eslint-enable */`,
+        ],
+      ])(
+        'rejects unnamed rules in %s even with an explanation',
+        async (_label, source) => {
+          const messages = await lint(source, file);
+          expect(messages.map((message) => message.ruleId)).toEqual([
+            '@eslint-community/eslint-comments/no-unlimited-disable',
+          ]);
+          expect(messages[0].severity).toBe(2);
+        },
+      );
+
+      it('does not require explanations for global declarations', async () => {
+        const declarations = file.endsWith('.ts')
+          ? 'export {}; declare global { const fixtureFlag: boolean; const fixtureMode: string; }'
+          : '';
+        const source = `/* global fixtureFlag: readonly */
+          /* globals fixtureMode: readonly */
+          ${declarations}
+          console.log(fixtureFlag, fixtureMode);`;
+        expect(await lint(source, file)).toEqual([]);
+      });
+    },
+  );
+
+  describe.each(['src/example.ts', 'tests/probe.mjs'])(
     'mixed operators in %s',
     (file) => {
       it.each([
@@ -290,7 +365,7 @@ describe('the installed ESLint configuration', () => {
 
   it('rejects stale disable comments', async () => {
     const messages = await lint(
-      '// eslint-disable-next-line eqeqeq\nexport const value = 1;',
+      '// eslint-disable-next-line eqeqeq -- This fixture formerly used loose equality.\nexport const value = 1;',
     );
     expect(
       messages.some(
@@ -299,6 +374,63 @@ describe('the installed ESLint configuration', () => {
           message.message.includes('Unused eslint-disable'),
       ),
     ).toBe(true);
+  });
+
+  it('allows a documented callback-state exception while preserving cancellation behavior', async () => {
+    const source = `export async function runJob(signal: AbortSignal, doWork: () => Promise<void>): Promise<string> {
+      let cancelled = false;
+      function onAbort(): void { cancelled = true; }
+      signal.addEventListener('abort', onAbort);
+      try {
+        await doWork();
+        if (cancelled) { return 'Cancelled'; }
+        return 'Completed';
+      } finally {
+        signal.removeEventListener('abort', onAbort);
+      }
+    }`;
+    const messages = await lint(source);
+    expect(messages.map((message) => message.ruleId)).toEqual([
+      '@typescript-eslint/no-unnecessary-condition',
+    ]);
+    const explained = source.replace(
+      'if (cancelled)',
+      '// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- The abort callback can change cancelled during await.\n        if (cancelled)',
+    );
+    expect(await lint(explained)).toEqual([]);
+    expect(
+      await lint(`export async function runJob(signal: AbortSignal, doWork: () => Promise<void>): Promise<string> {
+      await doWork();
+      return signal.aborted ? 'Cancelled' : 'Completed';
+    }`),
+    ).toEqual([]);
+
+    withCompilerFixture(
+      `${explained}
+      const controller = new AbortController();
+      const pending = Promise.withResolvers<void>();
+      const running = runJob(controller.signal, () => pending.promise);
+      controller.abort();
+      pending.resolve();
+      console.log(JSON.stringify({
+        cancelled: await running,
+        completed: await runJob(new AbortController().signal, () => Promise.resolve()),
+      }));`,
+      (directory) => {
+        const build = runCompiler(['-p', 'tsconfig.build.json'], directory);
+        expect(build.status, build.output).toBe(0);
+        const runtime = run(
+          process.execPath,
+          ['dist/compiler-probe.js'],
+          directory,
+        );
+        expect(runtime.status, runtime.output).toBe(0);
+        expect(JSON.parse(runtime.output)).toEqual({
+          cancelled: 'Cancelled',
+          completed: 'Completed',
+        });
+      },
+    );
   });
 
   it('still checks JavaScript tools', async () => {

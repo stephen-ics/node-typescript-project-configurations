@@ -1,3 +1,4 @@
+import eslintComments from '@eslint-community/eslint-plugin-eslint-comments';
 import js from '@eslint/js';
 import stylistic from '@stylistic/eslint-plugin';
 import { defineConfig, globalIgnores } from 'eslint/config';
@@ -24,9 +25,23 @@ export default defineConfig(
   ]),
   {
     files: ['**/*.{js,mjs,cjs,ts}'],
+    plugins: { '@eslint-community/eslint-comments': eslintComments },
     languageOptions: { globals: globals.node },
     linterOptions: { reportUnusedDisableDirectives: 'error' },
     rules: {
+      '@eslint-community/eslint-comments/no-unlimited-disable': 'error',
+      '@eslint-community/eslint-comments/require-description': [
+        'error',
+        {
+          ignore: [
+            'eslint-enable',
+            'eslint-env',
+            'exported',
+            'global',
+            'globals',
+          ],
+        },
+      ],
       eqeqeq: ['error', 'always', { null: 'never' }],
       'no-else-return': 'error',
       'no-lonely-if': 'error',
