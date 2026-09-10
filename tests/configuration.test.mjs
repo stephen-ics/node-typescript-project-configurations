@@ -114,6 +114,41 @@ describe('the installed ESLint configuration', () => {
       'curly',
     ],
     [
+      'repeated property names instead of shorthand',
+      "const name = 'worker'; export const options = { name: name };",
+      'object-shorthand',
+    ],
+    [
+      'long-form object methods',
+      "export const worker = { label: function (): string { return 'worker'; } };",
+      'object-shorthand',
+    ],
+    [
+      'else blocks after a returning branch',
+      "export function label(ready: boolean): string { if (ready) { return 'ready'; } else { return 'waiting'; } }",
+      'no-else-return',
+    ],
+    [
+      'else blocks containing only an if',
+      "export function report(ready: boolean, pending: boolean): void { if (ready) { console.log('ready'); } else { if (pending) { console.log('pending'); } } }",
+      'no-lonely-if',
+    ],
+    [
+      'ternaries that only reproduce a boolean condition',
+      'export function positive(count: number): boolean { return count > 0 ? true : false; }',
+      'no-unneeded-ternary',
+    ],
+    [
+      'string concatenation instead of interpolation',
+      "export function label(name: string): string { return 'Hello ' + name; }",
+      'prefer-template',
+    ],
+    [
+      'default parameters before required TypeScript parameters',
+      "export function label(prefix = 'Hello', name: string): string { return `${prefix} ${name}`; }",
+      '@typescript-eslint/default-param-last',
+    ],
+    [
       'type operations that erase every property',
       "export type Empty = Omit<{ name: string }, 'name'>;",
       '@typescript-eslint/no-generated-empty-object-type',
@@ -139,6 +174,10 @@ describe('the installed ESLint configuration', () => {
       export interface User { name: string; }
       export function retries(count = 3): number { return count; }
       export function report(): void { /* Intentionally unused in this fixture. */ }
+      const model = 'example';
+      export const options = { model, label(): string { return model; } };
+      export function label(name: string, prefix = 'Hello'): string { return \`\${prefix} \${name}\`; }
+      export function positive(count: number): boolean { return count > 0; }
       void Promise.resolve().catch((error: unknown) => { console.error(error); });
     `;
     expect(await lint(source)).toEqual([]);
@@ -189,6 +228,15 @@ describe('the installed ESLint configuration', () => {
     expect(messages.some((message) => message.ruleId === 'no-undef')).toBe(
       true,
     );
+  });
+
+  it('requires default parameters last in JavaScript tools too', async () => {
+    const source =
+      "export function label(prefix = 'Hello', name) { return `${prefix} ${name}`; }";
+    const messages = await lint(source, 'tests/probe.mjs');
+    expect(messages.map((message) => message.ruleId)).toEqual([
+      'default-param-last',
+    ]);
   });
 
   it.each([

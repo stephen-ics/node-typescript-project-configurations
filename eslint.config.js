@@ -21,19 +21,25 @@ export default defineConfig(
     linterOptions: { reportUnusedDisableDirectives: 'error' },
     rules: {
       eqeqeq: ['error', 'always', { null: 'never' }],
+      'no-else-return': 'error',
+      'no-lonely-if': 'error',
+      'no-unneeded-ternary': 'error',
       'no-unreachable-loop': 'error',
       'no-useless-call': 'error',
       'no-useless-computed-key': 'error',
       'no-useless-concat': 'error',
       'no-useless-rename': 'error',
       'no-void': ['error', { allowAsStatement: true }],
+      'object-shorthand': ['error', 'always'],
       'prefer-object-has-own': 'error',
+      'prefer-template': 'error',
       radix: 'error',
     },
   },
   {
     files: ['**/*.{js,mjs,cjs}'],
     extends: [js.configs.recommended],
+    rules: { 'default-param-last': 'error' },
   },
   {
     files: ['src/**/*.ts'],
@@ -51,6 +57,8 @@ export default defineConfig(
     },
     rules: {
       // Explicit overrides express project policy; other safety rules come from the preset.
+      'default-param-last': 'off',
+      '@typescript-eslint/default-param-last': 'error',
       '@typescript-eslint/ban-ts-comment': [
         'error',
         {
